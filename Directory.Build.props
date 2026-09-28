@@ -1,0 +1,7 @@
+<Project>
+  <!-- ソリューション内の全プロジェクト(旧形式の VSIX プロジェクトを含む)に共通の設定 -->
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+</Project>

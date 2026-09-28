@@ -1,0 +1,12 @@
+<UserControl x:Class="GitVisualizer.UI.Views.Dialogs.PullDialog"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:dialogs="clr-namespace:GitVisualizer.UI.ViewModels.Dialogs"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance Type=dialogs:PullDialogViewModel}"
+             d:DesignWidth="400" d:DesignHeight="200">
+    <!-- TODO: 「Pull」ダイアログの入力欄と OK / キャンセルボタンを配置する(VS 側で DialogWindow に載せて表示する) -->
+    <Grid />
+</UserControl>

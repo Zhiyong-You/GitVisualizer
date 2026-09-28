@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>GitVisualizer.UI</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <!--
+      XAML で VS テーマのリソースキー(EnvironmentColors / VsBrushes / VsResourceKeys)を参照するためだけに使う。
+      実行時は VS 本体に読み込まれているアセンブリが使われるため、runtime アセットは除外する。
+      ViewModels / Abstractions からは参照しないこと。
+    -->
+    <PackageReference Include="Microsoft.VisualStudio.Shell.15.0" Version="17.0.32112.339" ExcludeAssets="runtime" />
+    <!-- Shell.15.0 17.0 の依存関係内で 16.10 / 17.0 が競合する(MSB3277)ため、Microsoft.VisualStudio.SDK 17.0 と同じ版に固定する -->
+    <PackageReference Include="Microsoft.VisualStudio.Validation" Version="17.0.28" ExcludeAssets="runtime" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GitVisualizer.Core\GitVisualizer.Core.csproj" />
+  </ItemGroup>
+
+</Project>

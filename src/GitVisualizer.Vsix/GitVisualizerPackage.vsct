@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CommandTable xmlns="http://schemas.microsoft.com/VisualStudio/2005-10-18/CommandTable" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+
+  <Extern href="stdidcmd.h" />
+  <Extern href="vsshlids.h" />
+
+  <Commands package="guidGitVisualizerPackage">
+    <Buttons>
+      <!-- 表示 > その他のウィンドウ > Git Visualizer -->
+      <Button guid="guidGitVisualizerCmdSet" id="cmdidShowToolWindow" priority="0x0100" type="Button">
+        <Parent guid="guidSHLMainMenu" id="IDG_VS_WNDO_OTRWNDWS1" />
+        <Strings>
+          <ButtonText>Git Visualizer</ButtonText>
+        </Strings>
+      </Button>
+    </Buttons>
+  </Commands>
+
+  <!-- PackageIds.cs と一致させること -->
+  <Symbols>
+    <GuidSymbol name="guidGitVisualizerPackage" value="{e7b7fe4d-20e4-4d97-90ed-c4e89ae7d32e}" />
+
+    <GuidSymbol name="guidGitVisualizerCmdSet" value="{8307c1f9-fb2c-4dcb-aac7-ed2faf09a6e6}">
+      <IDSymbol name="cmdidShowToolWindow" value="0x0100" />
+    </GuidSymbol>
+  </Symbols>
+</CommandTable>
