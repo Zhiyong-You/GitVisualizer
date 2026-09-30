@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Text.RegularExpressions;
 using GitVisualizer.Core.Models;
 
 namespace GitVisualizer.Core.Infrastructure;
@@ -7,13 +9,56 @@ namespace GitVisualizer.Core.Infrastructure;
 /// <summary>git コマンドの標準出力をモデルに変換します。</summary>
 public sealed class GitOutputParser
 {
+    private const char FieldSeparator = '\0';
+    private const string RemoteRefPrefix = "refs/remotes/";
+
+    private static readonly Regex AheadPattern = new(@"ahead (\d+)", RegexOptions.Compiled);
+    private static readonly Regex BehindPattern = new(@"behind (\d+)", RegexOptions.Compiled);
+
     /// <summary>ブランチ一覧の出力を解析します。</summary>
     /// <param name="output"><c>git for-each-ref</c> の標準出力。</param>
     /// <returns>ブランチ一覧。</returns>
     public IReadOnlyList<BranchInfo> ParseBranches(string output)
     {
-        // TODO: git for-each-ref --format="%(HEAD)%00%(refname)%00%(refname:short)%00%(objectname)%00%(upstream:short)%00%(upstream:track)" の出力を解析
-        throw new NotImplementedException();
+        // 形式: %(HEAD)\0%(refname)\0%(refname:short)\0%(objectname)\0%(upstream:short)\0%(upstream:track) を 1 行 1 ref
+        var branches = new List<BranchInfo>();
+
+        foreach (string rawLine in output.Split('\n'))
+        {
+            string line = rawLine.TrimEnd('\r');
+            if (line.Length == 0)
+            {
+                continue;
+            }
+
+            string[] fields = line.Split(FieldSeparator);
+            if (fields.Length < 6)
+            {
+                continue;
+            }
+
+            string fullName = fields[1];
+            bool isRemote = fullName.StartsWith(RemoteRefPrefix, StringComparison.Ordinal);
+
+            // refs/remotes/<remote>/HEAD はリモートの既定ブランチを指すシンボリック参照で、ブランチではない
+            if (isRemote && fullName.EndsWith("/HEAD", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string track = fields[5];
+            branches.Add(new BranchInfo(
+                name: fields[2],
+                fullName: fullName,
+                tipSha: fields[3],
+                isRemote: isRemote,
+                isCurrent: fields[0] == "*",
+                upstream: fields[4].Length == 0 ? null : fields[4],
+                ahead: ParseTrackCount(AheadPattern, track),
+                behind: ParseTrackCount(BehindPattern, track)));
+        }
+
+        return branches;
     }
 
     /// <summary>コミットログの出力を解析します。</summary>
@@ -42,5 +87,12 @@ public sealed class GitOutputParser
     {
         // TODO: --progress 付きで出る "Receiving objects:  45% (9/20)" 形式の行から % を取り出す
         throw new NotImplementedException();
+    }
+
+    /// <summary><c>[ahead 1, behind 2]</c> 形式から指定した側の件数を取り出します。該当なしなら 0。</summary>
+    private static int ParseTrackCount(Regex pattern, string track)
+    {
+        Match match = pattern.Match(track);
+        return match.Success ? int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture) : 0;
     }
 }
