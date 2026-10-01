@@ -62,12 +62,60 @@ public sealed class GitOutputParser
     }
 
     /// <summary>コミットログの出力を解析します。</summary>
-    /// <param name="output"><c>git log</c> の標準出力。</param>
+    /// <param name="input"><c>git log</c> の標準出力。</param>
     /// <returns>コミット一覧(新しい順)。</returns>
-    public IReadOnlyList<CommitInfo> ParseLog(string output)
+    public IReadOnlyList<CommitInfo> ParseLog(string input)
     {
         // TODO: git log -z --format="%H%x00%P%x00%an%x00%ae%x00%aI%x00%D%x00%s%x00%b" の出力を解析
-        throw new NotImplementedException();
+        // Format: SHA\0Parents\0AuthorName\0AuthorEmail\0AuthorDateISO\0Refs\0Subject\0Body\0
+        
+        var commits = new List<CommitInfo>();
+        
+        if (string.IsNullOrEmpty(input))
+        {
+            return commits;
+        }
+
+        // Split by null terminator to separate commits (git log -z uses \0 as record separator)
+        var records = input.Split(new[] { '\0' }, StringSplitOptions.None);
+        
+        // Each commit has 8 fields, so we process in groups of 8
+        for (int i = 0; i + 7 < records.Length; i += 8)
+        {
+            var sha = records[i];
+            var parentShasStr = records[i + 1];
+            var authorName = records[i + 2];
+            var authorEmail = records[i + 3];
+            var authorDateStr = records[i + 4];
+            var refsStr = records[i + 5];
+            var subject = records[i + 6];
+            var body = records[i + 7];
+
+            // Parse parent SHAs (space-separated, empty string means no parents)
+            var parentShas = string.IsNullOrEmpty(parentShasStr)
+                ? Array.Empty<string>()
+                : parentShasStr.Split(' ');
+
+            // Parse author date (ISO 8601 format, ex: 2026-10-01T10:30:00+09:00)
+            var authorDate = DateTimeOffset.Parse(authorDateStr);
+
+            // Parse refs (format: "HEAD -> branch, tag: v1.0, origin/branch")
+            var refs = ParseRefs(refsStr);
+
+            var commit = new CommitInfo(
+                sha,
+                parentShas,
+                authorName,
+                authorEmail,
+                authorDate,
+                subject,
+                body,
+                refs);
+
+            commits.Add(commit);
+        }
+
+        return commits;
     }
 
     /// <summary>作業ツリーの状態出力を解析します。</summary>
@@ -94,5 +142,38 @@ public sealed class GitOutputParser
     {
         Match match = pattern.Match(track);
         return match.Success ? int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture) : 0;
+    }
+
+    /// <summary>git log の %D フォーマット出力から参照名を解析します。</summary>
+    private static IReadOnlyList<string> ParseRefs(string refsStr)
+    {
+        if (string.IsNullOrEmpty(refsStr))
+        {
+            return Array.Empty<string>();
+        }
+
+        var refs = new List<string>();
+        
+        // %D format: "HEAD -> branch, tag: v1.0, origin/master"
+        // Split by ", " and clean up each ref
+        var refParts = refsStr.Split(new[] { ", " }, StringSplitOptions.None);
+        
+        foreach (var refPart in refParts)
+        {
+            var trimmed = refPart.Trim();
+            
+            // Remove "tag: " prefix if present
+            if (trimmed.StartsWith("tag: ", StringComparison.Ordinal))
+            {
+                trimmed = trimmed.Substring(5);
+            }
+            
+            if (!string.IsNullOrEmpty(trimmed))
+            {
+                refs.Add(trimmed);
+            }
+        }
+
+        return refs;
     }
 }
