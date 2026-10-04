@@ -15,6 +15,10 @@ public sealed class GitOutputParser
     private static readonly Regex AheadPattern = new(@"ahead (\d+)", RegexOptions.Compiled);
     private static readonly Regex BehindPattern = new(@"behind (\d+)", RegexOptions.Compiled);
 
+    // 例: "Receiving objects:  45% (9/20), 1.20 MiB | 500.00 KiB/s"、"remote: Counting objects: 100% (20/20), done."
+    // "(9/20)" まで要求し、エラーメッセージ中の "50%" などを誤検出しないようにする
+    private static readonly Regex ProgressPattern = new(@":\s+(\d{1,3})% \(\d+/\d+\)", RegexOptions.Compiled);
+
     /// <summary>ブランチ一覧の出力を解析します。</summary>
     /// <param name="output"><c>git for-each-ref</c> の標準出力。</param>
     /// <returns>ブランチ一覧。</returns>
@@ -133,8 +137,27 @@ public sealed class GitOutputParser
     /// <returns>進捗行として解析できた場合は <see langword="true"/>。</returns>
     public bool TryParseProgress(string line, out OperationProgress? progress)
     {
-        // TODO: --progress 付きで出る "Receiving objects:  45% (9/20)" 形式の行から % を取り出す
-        throw new NotImplementedException();
+        // git は進捗を \r で上書きしながら出すため、1 行に複数の更新が含まれる。最後の更新だけを使う
+        string? latest = null;
+        foreach (string segment in line.Split('\r'))
+        {
+            string trimmed = segment.Trim();
+            if (trimmed.Length != 0)
+            {
+                latest = trimmed;
+            }
+        }
+
+        Match match = latest is null ? Match.Empty : ProgressPattern.Match(latest);
+        if (!match.Success)
+        {
+            progress = null;
+            return false;
+        }
+
+        int percent = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
+        progress = new OperationProgress(latest!, Math.Min(percent, 100));
+        return true;
     }
 
     /// <summary><c>[ahead 1, behind 2]</c> 形式から指定した側の件数を取り出します。該当なしなら 0。</summary>
