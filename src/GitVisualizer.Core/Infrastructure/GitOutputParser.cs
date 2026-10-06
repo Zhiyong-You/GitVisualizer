@@ -123,8 +123,206 @@ public sealed class GitOutputParser
     /// <returns>変更ファイル一覧(ステージ済み・未ステージの両方)。</returns>
     public IReadOnlyList<FileChange> ParseStatus(string output)
     {
-        // TODO: git status --porcelain=v2 -z --untracked-files=all の出力を解析(1/2/u/? 行を区別)
-        throw new NotImplementedException();
+        var changes = new List<FileChange>();
+
+        if (string.IsNullOrEmpty(output))
+        {
+            return changes;
+        }
+
+        string[] records = output.Split(FieldSeparator);
+
+        for (int i = 0; i < records.Length; i++)
+        {
+            string record = records[i];
+
+            if (string.IsNullOrEmpty(record))
+            {
+                continue;
+            }
+
+            char recordType = record[0];
+
+            switch (recordType)
+            {
+                case '?':
+                    ParseUntrackedRecord(record, changes);
+                    break;
+
+                case '1':
+                    ParseOrdinaryRecord(record, changes);
+                    break;
+
+                case '2':
+                    string? oldPath = null;
+
+                    if (i + 1 < records.Length)
+                    {
+                        oldPath = records[i + 1];
+                        i++;
+                    }
+
+                    ParseRenamedOrCopiedRecord(record, oldPath, changes);
+                    break;
+
+                case 'u':
+                    ParseUnmergedRecord(record, changes);
+                    break;
+            }
+        }
+
+        return changes;
+    }
+
+    private static void ParseUntrackedRecord(string record, List<FileChange> changes)
+    {
+        if (record.Length <= 2)
+        {
+            return;
+        }
+
+        string path = record.Substring(2);
+
+        changes.Add(new FileChange(
+            path,
+            FileChangeKind.Untracked,
+            isStaged: false));
+    }
+
+    private static void ParseOrdinaryRecord(string record, List<FileChange> changes)
+    {
+        string[] fields = record.Split(new[] { ' ' }, 9);
+
+        if (fields.Length < 9)
+        {
+            return;
+        }
+
+        string status = fields[1];
+        string path = fields[8];
+
+        AddChangesFromStatus(
+            status,
+            path,
+            oldPath: null,
+            changes);
+    }
+
+    private static void ParseRenamedOrCopiedRecord(string record, string? oldPath, List<FileChange> changes)
+    {
+        string[] fields = record.Split(new[] { ' ' }, 10);
+
+        if (fields.Length < 10)
+        {
+            return;
+        }
+
+        string status = fields[1];
+        string changeType = fields[8];
+        string path = fields[9];
+
+        FileChangeKind kind;
+
+        if (changeType.StartsWith("R", StringComparison.Ordinal))
+        {
+            kind = FileChangeKind.Renamed;
+        }
+        else if (changeType.StartsWith("C", StringComparison.Ordinal))
+        {
+            kind = FileChangeKind.Copied;
+        }
+        else
+        {
+            return;
+        }
+
+        bool isStaged = status[0] != '.';
+
+        changes.Add(new FileChange(
+            path,
+            kind,
+            isStaged,
+            oldPath));
+    }
+
+    private static void ParseUnmergedRecord(string record, List<FileChange> changes)
+    {
+        string[] fields = record.Split(new[] { ' ' }, 11);
+
+        if (fields.Length < 11)
+        {
+            return;
+        }
+
+        string path = fields[10];
+
+        changes.Add(new FileChange(
+            path,
+            FileChangeKind.Conflicted,
+            isStaged: false));
+    }
+
+    private static void AddChangesFromStatus(string status, string path, string? oldPath, List<FileChange> changes)
+    {
+        if (status.Length < 2)
+        {
+            return;
+        }
+
+        char indexStatus = status[0];
+        char workTreeStatus = status[1];
+
+        if (indexStatus != '.')
+        {
+            FileChangeKind? kind = ConvertStatus(indexStatus);
+
+            if (kind.HasValue)
+            {
+                changes.Add(new FileChange(
+                    path,
+                    kind.Value,
+                    isStaged: true,
+                    oldPath));
+            }
+        }
+
+        if (workTreeStatus != '.')
+        {
+            FileChangeKind? kind = ConvertStatus(workTreeStatus);
+
+            if (kind.HasValue)
+            {
+                changes.Add(new FileChange(
+                    path,
+                    kind.Value,
+                    isStaged: false,
+                    oldPath));
+            }
+        }
+    }
+
+    private static FileChangeKind? ConvertStatus(char status)
+    {
+        switch (status)
+        {
+            case 'M':
+                return FileChangeKind.Modified;
+
+            case 'A':
+                return FileChangeKind.Added;
+
+            case 'D':
+                return FileChangeKind.Deleted;
+
+            case 'R':
+                return FileChangeKind.Renamed;
+
+            case 'C':
+                return FileChangeKind.Copied;
+
+            default:
+                return null;
+        }
     }
 
     /// <summary>標準エラーの進捗行を解析します。</summary>
