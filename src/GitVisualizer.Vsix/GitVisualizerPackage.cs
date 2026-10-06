@@ -53,7 +53,7 @@ public sealed class GitVisualizerPackage : AsyncPackage
         IOutputLogger logger = await VsOutputLogger.CreateAsync(this, cancellationToken);
 
         // Infrastructure
-        var gitRunner = new GitProcessRunner(new GitExeLocator());
+        var gitRunner = new GitProcessRunner(new GitExeLocator(), new GitOutputParser());
         var parser = new GitOutputParser();
 
         // Core サービス
