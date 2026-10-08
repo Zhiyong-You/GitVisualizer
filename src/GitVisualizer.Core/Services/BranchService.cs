@@ -22,11 +22,42 @@ public sealed class BranchService : IBranchService
         _parser = parser;
     }
 
-    /// <inheritdoc/>
-    public Task<IReadOnlyList<BranchInfo>> GetBranchesAsync(string repositoryPath, CancellationToken ct = default)
+    /// <summary>
+    /// 指定されたリポジトリのローカルブランチとリモートブランチを取得します。
+    /// </summary>
+    /// <param name="repositoryPath">対象となる Git リポジトリのルートパス。</param>
+    /// <param name="ct">処理をキャンセルするためのトークン。</param>
+    /// <returns>取得したブランチ情報の一覧。</returns>
+    /// <exception cref="InvalidOperationException">
+    /// git for-each-ref の実行に失敗した場合にスローされます。
+    /// </exception>
+    public async Task<IReadOnlyList<BranchInfo>> GetBranchesAsync(
+        string repositoryPath,
+        CancellationToken ct = default)
     {
-        // TODO: git for-each-ref refs/heads refs/remotes --format=... を実行し GitOutputParser.ParseBranches に渡す
-        throw new NotImplementedException();
+        // ローカルブランチとリモートブランチを取得するための引数を作成する
+        var arguments = new[]
+        {
+        "for-each-ref",
+        "refs/heads",
+        "refs/remotes",
+        "--format=%(HEAD)%00%(refname)%00%(refname:short)%00%(objectname)%00%(upstream:short)%00%(upstream:track)"
+    };
+
+        // 指定されたリポジトリで git for-each-ref を実行する
+        GitResult result = await _runner.RunAsync(
+            repositoryPath,
+            arguments,
+            ct: ct);
+
+        // git コマンドが失敗した場合は、標準エラーの内容を例外として通知する
+        if (!result.IsSuccess)
+        {
+            throw new InvalidOperationException(result.StandardError);
+        }
+
+        // 標準出力を BranchInfo の一覧に変換して返す
+        return _parser.ParseBranches(result.StandardOutput);
     }
 
     /// <inheritdoc/>
