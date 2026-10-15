@@ -11,4 +11,8 @@
     <RootNamespace>GitEditorHelper</RootNamespace>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="GitVisualizer.Core.Tests" />
+  </ItemGroup>
+
 </Project>

@@ -3,10 +3,44 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vsshell="clr-namespace:Microsoft.VisualStudio.Shell;assembly=Microsoft.VisualStudio.Shell.15.0"
+             xmlns:platformUI="clr-namespace:Microsoft.VisualStudio.PlatformUI;assembly=Microsoft.VisualStudio.Shell.15.0"
              xmlns:dialogs="clr-namespace:GitVisualizer.UI.ViewModels.Dialogs"
              mc:Ignorable="d"
              d:DataContext="{d:DesignInstance Type=dialogs:CherryPickDialogViewModel}"
              d:DesignWidth="400" d:DesignHeight="200">
-    <!-- TODO: 「チェリーピック」ダイアログの入力欄と OK / キャンセルボタンを配置する(VS 側で DialogWindow に載せて表示する) -->
-    <Grid />
+    <UserControl.Resources>
+        <ResourceDictionary Source="pack://application:,,,/GitVisualizer.UI;component/Views/Dialogs/DialogStyles.xaml" />
+    </UserControl.Resources>
+    <UserControl.Style>
+        <StaticResource ResourceKey="DialogRootStyle" />
+    </UserControl.Style>
+
+    <StackPanel MaxWidth="480">
+        <TextBlock Text="取り込むコミット:" Style="{StaticResource DialogLabelStyle}" Margin="0,0,0,4" />
+        <TextBlock Text="{Binding Commit.Subject}" Style="{StaticResource DialogHeaderStyle}" Margin="0,0,0,2" />
+        <TextBlock Text="{Binding Commit.Sha}" Opacity="0.75" Margin="0,0,0,10" />
+
+        <CheckBox Content="元コミットの SHA をメッセージに追記する(-x)" Margin="0,3"
+                  IsChecked="{Binding RecordOrigin}"
+                  Foreground="{DynamicResource {x:Static platformUI:EnvironmentColors.ToolWindowTextBrushKey}}"
+                  Style="{DynamicResource {x:Static vsshell:VsResourceKeys.CheckBoxStyleKey}}" />
+        <CheckBox Content="コミットせずに変更だけ取り込む(--no-commit)" Margin="0,3"
+                  IsChecked="{Binding NoCommit}"
+                  Foreground="{DynamicResource {x:Static platformUI:EnvironmentColors.ToolWindowTextBrushKey}}"
+                  Style="{DynamicResource {x:Static vsshell:VsResourceKeys.CheckBoxStyleKey}}" />
+
+        <StackPanel Visibility="{Binding IsMergeCommit, Converter={StaticResource BoolToVisibility}}">
+            <TextBlock Text="マージコミットの基準にする親の番号(-m):" Style="{StaticResource DialogLabelStyle}" />
+            <ComboBox ItemsSource="{Binding MainlineOptions}" SelectedItem="{Binding Mainline}" Width="80" HorizontalAlignment="Left"
+                      Style="{DynamicResource {x:Static vsshell:VsResourceKeys.ComboBoxStyleKey}}" />
+        </StackPanel>
+
+        <StackPanel Style="{StaticResource DialogButtonPanelStyle}">
+            <Button Content="チェリーピック" Command="{Binding OkCommand}" IsDefault="True" MinWidth="90" Margin="0,0,6,0" Padding="10,2"
+                    Style="{DynamicResource {x:Static vsshell:VsResourceKeys.ButtonStyleKey}}" />
+            <Button Content="キャンセル" Command="{Binding CancelCommand}" IsCancel="True" MinWidth="90" Padding="10,2"
+                    Style="{DynamicResource {x:Static vsshell:VsResourceKeys.ButtonStyleKey}}" />
+        </StackPanel>
+    </StackPanel>
 </UserControl>

@@ -3,10 +3,47 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vsshell="clr-namespace:Microsoft.VisualStudio.Shell;assembly=Microsoft.VisualStudio.Shell.15.0"
+             xmlns:platformUI="clr-namespace:Microsoft.VisualStudio.PlatformUI;assembly=Microsoft.VisualStudio.Shell.15.0"
              xmlns:dialogs="clr-namespace:GitVisualizer.UI.ViewModels.Dialogs"
              mc:Ignorable="d"
              d:DataContext="{d:DesignInstance Type=dialogs:PushDialogViewModel}"
              d:DesignWidth="400" d:DesignHeight="200">
-    <!-- TODO: 「Push」ダイアログの入力欄と OK / キャンセルボタンを配置する(VS 側で DialogWindow に載せて表示する) -->
-    <Grid />
+    <UserControl.Resources>
+        <ResourceDictionary Source="pack://application:,,,/GitVisualizer.UI;component/Views/Dialogs/DialogStyles.xaml" />
+    </UserControl.Resources>
+    <UserControl.Style>
+        <StaticResource ResourceKey="DialogRootStyle" />
+    </UserControl.Style>
+
+    <StackPanel>
+        <TextBlock Style="{StaticResource DialogHeaderStyle}">
+            <Run Text="ブランチ: " /><Run Text="{Binding BranchName, Mode=OneWay}" />
+        </TextBlock>
+
+        <TextBlock Text="リモート:" Style="{StaticResource DialogLabelStyle}" />
+        <ComboBox ItemsSource="{Binding Remotes}" SelectedItem="{Binding Remote}"
+                  Style="{DynamicResource {x:Static vsshell:VsResourceKeys.ComboBoxStyleKey}}" />
+
+        <CheckBox Content="上流ブランチとして設定する(-u)" Margin="0,10,0,3"
+                  IsChecked="{Binding SetUpstream}"
+                  Foreground="{DynamicResource {x:Static platformUI:EnvironmentColors.ToolWindowTextBrushKey}}"
+                  Style="{DynamicResource {x:Static vsshell:VsResourceKeys.CheckBoxStyleKey}}" />
+        <CheckBox Content="タグも push する(--follow-tags)" Margin="0,3"
+                  IsChecked="{Binding IncludeTags}"
+                  Foreground="{DynamicResource {x:Static platformUI:EnvironmentColors.ToolWindowTextBrushKey}}"
+                  Style="{DynamicResource {x:Static vsshell:VsResourceKeys.CheckBoxStyleKey}}" />
+        <CheckBox Content="強制 push する(--force-with-lease)" Margin="0,3"
+                  IsChecked="{Binding ForceWithLease}"
+                  Foreground="{DynamicResource {x:Static platformUI:EnvironmentColors.ToolWindowTextBrushKey}}"
+                  Style="{DynamicResource {x:Static vsshell:VsResourceKeys.CheckBoxStyleKey}}" />
+        <TextBlock Text="リモートの履歴を書き換えます。リベースやコミットメッセージの変更の後に使います。" Style="{StaticResource DialogNoteStyle}" />
+
+        <StackPanel Style="{StaticResource DialogButtonPanelStyle}">
+            <Button Content="Push" Command="{Binding OkCommand}" IsDefault="True" MinWidth="90" Margin="0,0,6,0" Padding="10,2"
+                    Style="{DynamicResource {x:Static vsshell:VsResourceKeys.ButtonStyleKey}}" />
+            <Button Content="キャンセル" Command="{Binding CancelCommand}" IsCancel="True" MinWidth="90" Padding="10,2"
+                    Style="{DynamicResource {x:Static vsshell:VsResourceKeys.ButtonStyleKey}}" />
+        </StackPanel>
+    </StackPanel>
 </UserControl>

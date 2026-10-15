@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using GitVisualizer.Core.Infrastructure;
@@ -10,6 +11,14 @@ namespace GitVisualizer.Core.Services;
 /// <summary><see cref="IHistoryService"/> の git.exe 実装。</summary>
 public sealed class HistoryService : IHistoryService
 {
+    /// <summary>reword 対象のコミット SHA を GitEditorHelper に渡す環境変数名。</summary>
+    public const string RewordShaEnvironmentVariable = "GITVISUALIZER_REWORD_SHA";
+
+    /// <summary>新しいコミットメッセージのファイルパスを GitEditorHelper に渡す環境変数名。</summary>
+    public const string MessageFileEnvironmentVariable = "GITVISUALIZER_MESSAGE_FILE";
+
+    private const string LogFormat = "--format=%H%x00%P%x00%an%x00%ae%x00%aI%x00%D%x00%s%x00%b";
+
     private readonly IGitCommandRunner _runner;
     private readonly GitOutputParser _parser;
     private readonly IRepositoryStateService _state;
@@ -29,51 +38,207 @@ public sealed class HistoryService : IHistoryService
     }
 
     /// <inheritdoc/>
-    public Task<IReadOnlyList<CommitInfo>> GetLogAsync(string repositoryPath, int maxCount, CancellationToken ct = default)
+    public async Task<IReadOnlyList<CommitInfo>> GetLogAsync(string repositoryPath, int maxCount, CancellationToken ct = default)
     {
-        // TODO: git log --all --topo-order -n <maxCount> -z --format=... を実行し GitOutputParser.ParseLog に渡す
-        throw new NotImplementedException();
+        // --all だと refs/stash まで表示されるため、ブランチ・リモート・タグ・HEAD を明示する
+        var arguments = new List<string>
+        {
+            "log", "--branches", "--remotes", "--tags", "--topo-order",
+            "-n", maxCount.ToString(CultureInfo.InvariantCulture), "-z", LogFormat,
+        };
+
+        // コミットが 1 つもないリポジトリでは HEAD を指定するとエラーになる
+        if (await RevParseAsync(repositoryPath, "HEAD", ct).ConfigureAwait(false) != null)
+        {
+            arguments.Add("HEAD");
+        }
+
+        GitResult result = await _runner.RunAsync(repositoryPath, arguments, ct: ct).ConfigureAwait(false);
+        if (!result.IsSuccess)
+        {
+            throw new InvalidOperationException(result.StandardError);
+        }
+
+        return _parser.ParseLog(result.StandardOutput);
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<FileChange>> GetCommitChangesAsync(string repositoryPath, string commitSha, CancellationToken ct = default)
+    {
+        GitResult result = await _runner.RunAsync(
+            repositoryPath,
+            new[] { "show", "--format=", "--name-status", "-z", "-M", "--diff-merges=first-parent", commitSha },
+            ct: ct).ConfigureAwait(false);
+        if (!result.IsSuccess)
+        {
+            throw new InvalidOperationException(result.StandardError);
+        }
+
+        return _parser.ParseNameStatus(result.StandardOutput);
     }
 
     /// <inheritdoc/>
     public Task<GitResult> RebaseAsync(string repositoryPath, RebaseOptions options, CancellationToken ct = default)
     {
-        // TODO: git rebase [--autostash] <options.Onto> を実行
-        throw new NotImplementedException();
+        if (string.IsNullOrWhiteSpace(options.Onto))
+        {
+            return Task.FromResult(GitResults.Failure("リベース先が指定されていません。"));
+        }
+
+        var arguments = new List<string> { "rebase" };
+        if (options.AutoStash)
+        {
+            arguments.Add("--autostash");
+        }
+
+        arguments.Add(options.Onto.Trim());
+        return _runner.RunAsync(repositoryPath, arguments, ct: ct);
     }
 
     /// <inheritdoc/>
     public Task<GitResult> CherryPickAsync(string repositoryPath, IReadOnlyList<string> commitShas, CherryPickOptions options, CancellationToken ct = default)
     {
-        // TODO: git cherry-pick [--no-commit] [-x] [-m <n>] <sha...> を実行
-        throw new NotImplementedException();
+        if (commitShas.Count == 0)
+        {
+            return Task.FromResult(GitResults.Failure("取り込むコミットが指定されていません。"));
+        }
+
+        var arguments = new List<string> { "cherry-pick" };
+        if (options.NoCommit)
+        {
+            arguments.Add("--no-commit");
+        }
+
+        if (options.RecordOrigin)
+        {
+            arguments.Add("-x");
+        }
+
+        if (options.Mainline is int mainline)
+        {
+            arguments.Add("-m");
+            arguments.Add(mainline.ToString(CultureInfo.InvariantCulture));
+        }
+
+        arguments.AddRange(commitShas);
+        return _runner.RunAsync(repositoryPath, arguments, ct: ct);
     }
 
     /// <inheritdoc/>
-    public Task<GitResult> RewordAsync(string repositoryPath, string commitSha, string newMessage, CancellationToken ct = default)
+    public async Task<GitResult> RewordAsync(string repositoryPath, string commitSha, string newMessage, CancellationToken ct = default)
     {
-        // TODO: HEAD なら git commit --amend -F <tmp>、それ以外は GIT_SEQUENCE_EDITOR/GIT_EDITOR=GitEditorHelper.exe で git rebase -i <sha>^
-        throw new NotImplementedException();
+        if (string.IsNullOrWhiteSpace(newMessage))
+        {
+            return GitResults.Failure("コミットメッセージが空です。");
+        }
+
+        string? head = await RevParseAsync(repositoryPath, "HEAD", ct).ConfigureAwait(false);
+        string? target = await RevParseAsync(repositoryPath, commitSha + "^{commit}", ct).ConfigureAwait(false);
+        if (head == null || target == null)
+        {
+            return GitResults.Failure($"コミット {commitSha} が見つかりません。");
+        }
+
+        using var messageFile = new TempMessageFile(newMessage);
+
+        if (target == head)
+        {
+            // HEAD ならメッセージだけを修正する(--only: ステージ済みの変更は含めない)
+            return await _runner.RunAsync(
+                repositoryPath,
+                new[] { "commit", "--amend", "--only", "--allow-empty", "-F", messageFile.Path },
+                ct: ct).ConfigureAwait(false);
+        }
+
+        // 現在のブランチに含まれないコミットは書き換えられない
+        GitResult ancestor = await _runner.RunAsync(repositoryPath, new[] { "merge-base", "--is-ancestor", target, "HEAD" }, ct: ct).ConfigureAwait(false);
+        if (!ancestor.IsSuccess)
+        {
+            return GitResults.Failure("選択したコミットは現在のブランチに含まれていないため、メッセージを変更できません。");
+        }
+
+        // 親がなければ(ルートコミット)--root、あればその親からの対話的リベース
+        GitResult parents = await _runner.RunAsync(repositoryPath, new[] { "rev-list", "--parents", "-n", "1", target }, ct: ct).ConfigureAwait(false);
+        bool isRoot = parents.StandardOutput.Trim().Split(' ').Length <= 1;
+
+        // GitEditorHelper が git-rebase-todo の対象行を reword に変え、COMMIT_EDITMSG を新メッセージで上書きする。
+        // git はエディタを sh 経由で起動するため、パスは引用符で囲み "/" 区切りにする
+        string editor = "\"" + _editorHelperPath.Replace('\\', '/') + "\"";
+        var environment = new Dictionary<string, string>
+        {
+            ["GIT_SEQUENCE_EDITOR"] = editor,
+            ["GIT_EDITOR"] = editor,
+            [RewordShaEnvironmentVariable] = target,
+            [MessageFileEnvironmentVariable] = messageFile.Path,
+        };
+
+        var arguments = new List<string> { "rebase", "--interactive", "--autostash", "--rebase-merges" };
+        arguments.Add(isRoot ? "--root" : target + "^");
+
+        return await _runner.RunAsync(repositoryPath, arguments, environment, ct: ct).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
-    public Task<GitResult> ContinueAsync(string repositoryPath, CancellationToken ct = default)
+    public async Task<GitResult> ContinueAsync(string repositoryPath, CancellationToken ct = default)
     {
-        // TODO: IRepositoryStateService.GetOperationAsync の結果に応じて git rebase --continue / git cherry-pick --continue(GIT_EDITOR=true)
-        throw new NotImplementedException();
+        // --continue で開くエディタは、GitProcessRunner の既定(GIT_EDITOR=true)で抑止される
+        string? command = await GetOperationCommandAsync(repositoryPath, ct).ConfigureAwait(false);
+        if (command == null)
+        {
+            return GitResults.Failure("続行できる操作はありません。");
+        }
+
+        return await _runner.RunAsync(repositoryPath, new[] { command, "--continue" }, ct: ct).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
-    public Task<GitResult> SkipAsync(string repositoryPath, CancellationToken ct = default)
+    public async Task<GitResult> SkipAsync(string repositoryPath, CancellationToken ct = default)
     {
-        // TODO: 操作に応じて git rebase --skip / git cherry-pick --skip を実行
-        throw new NotImplementedException();
+        RepositoryOperation operation = await _state.GetOperationAsync(repositoryPath, ct).ConfigureAwait(false);
+        if (operation == RepositoryOperation.Merge)
+        {
+            return GitResults.Failure("マージはスキップできません。続行するか中止してください。");
+        }
+
+        string? command = ToCommand(operation);
+        if (command == null)
+        {
+            return GitResults.Failure("スキップできる操作はありません。");
+        }
+
+        return await _runner.RunAsync(repositoryPath, new[] { command, "--skip" }, ct: ct).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
-    public Task<GitResult> AbortAsync(string repositoryPath, CancellationToken ct = default)
+    public async Task<GitResult> AbortAsync(string repositoryPath, CancellationToken ct = default)
     {
-        // TODO: 操作に応じて git rebase --abort / git cherry-pick --abort / git merge --abort を実行
-        throw new NotImplementedException();
+        string? command = await GetOperationCommandAsync(repositoryPath, ct).ConfigureAwait(false);
+        if (command == null)
+        {
+            return GitResults.Failure("中止できる操作はありません。");
+        }
+
+        return await _runner.RunAsync(repositoryPath, new[] { command, "--abort" }, ct: ct).ConfigureAwait(false);
+    }
+
+    private async Task<string?> GetOperationCommandAsync(string repositoryPath, CancellationToken ct)
+    {
+        RepositoryOperation operation = await _state.GetOperationAsync(repositoryPath, ct).ConfigureAwait(false);
+        return ToCommand(operation);
+    }
+
+    private static string? ToCommand(RepositoryOperation operation) => operation switch
+    {
+        RepositoryOperation.Rebase => "rebase",
+        RepositoryOperation.CherryPick => "cherry-pick",
+        RepositoryOperation.Revert => "revert",
+        RepositoryOperation.Merge => "merge",
+        _ => null,
+    };
+
+    private async Task<string?> RevParseAsync(string repositoryPath, string revision, CancellationToken ct)
+    {
+        GitResult result = await _runner.RunAsync(repositoryPath, new[] { "rev-parse", "--verify", "--quiet", revision }, ct: ct).ConfigureAwait(false);
+        return result.IsSuccess ? result.StandardOutput.Trim() : null;
     }
 }

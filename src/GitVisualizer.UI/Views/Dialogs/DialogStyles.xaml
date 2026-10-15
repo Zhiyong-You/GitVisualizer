@@ -1,0 +1,52 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:vsshell="clr-namespace:Microsoft.VisualStudio.Shell;assembly=Microsoft.VisualStudio.Shell.15.0"
+                    xmlns:platformUI="clr-namespace:Microsoft.VisualStudio.PlatformUI;assembly=Microsoft.VisualStudio.Shell.15.0"
+                    xmlns:converters="clr-namespace:GitVisualizer.UI.Converters">
+
+    <!-- ダイアログ共通のリソース。色は VS テーマのリソースキーに DynamicResource でバインドする(固定色は使わない) -->
+
+    <converters:EnumEqualsConverter x:Key="EnumEquals" />
+    <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+
+    <!-- ダイアログのルート(UserControl)に適用する -->
+    <Style x:Key="DialogRootStyle" TargetType="UserControl">
+        <Setter Property="Background" Value="{DynamicResource {x:Static platformUI:EnvironmentColors.ToolWindowBackgroundBrushKey}}" />
+        <Setter Property="Foreground" Value="{DynamicResource {x:Static platformUI:EnvironmentColors.ToolWindowTextBrushKey}}" />
+        <Setter Property="TextElement.FontFamily" Value="{DynamicResource {x:Static vsshell:VsFonts.EnvironmentFontFamilyKey}}" />
+        <Setter Property="TextElement.FontSize" Value="{DynamicResource {x:Static vsshell:VsFonts.EnvironmentFontSizeKey}}" />
+        <Setter Property="MinWidth" Value="380" />
+        <Setter Property="Padding" Value="14,12" />
+    </Style>
+
+    <!-- 見出し(対象ブランチ・コミット) -->
+    <Style x:Key="DialogHeaderStyle" TargetType="TextBlock">
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+        <Setter Property="Margin" Value="0,0,0,10" />
+    </Style>
+
+    <!-- 項目の見出し -->
+    <Style x:Key="DialogLabelStyle" TargetType="TextBlock">
+        <Setter Property="Margin" Value="0,8,0,4" />
+    </Style>
+
+    <!-- 補足説明 -->
+    <Style x:Key="DialogNoteStyle" TargetType="TextBlock">
+        <Setter Property="Opacity" Value="0.75" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+        <Setter Property="Margin" Value="20,0,0,4" />
+    </Style>
+
+    <Style TargetType="RadioButton">
+        <Setter Property="Foreground" Value="{DynamicResource {x:Static platformUI:EnvironmentColors.ToolWindowTextBrushKey}}" />
+        <Setter Property="Margin" Value="0,2" />
+    </Style>
+
+    <!-- OK / キャンセル -->
+    <Style x:Key="DialogButtonPanelStyle" TargetType="StackPanel">
+        <Setter Property="Orientation" Value="Horizontal" />
+        <Setter Property="HorizontalAlignment" Value="Right" />
+        <Setter Property="Margin" Value="0,16,0,0" />
+    </Style>
+</ResourceDictionary>

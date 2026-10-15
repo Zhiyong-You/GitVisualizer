@@ -6,4 +6,8 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="GitVisualizer.Core.Tests" />
+  </ItemGroup>
+
 </Project>

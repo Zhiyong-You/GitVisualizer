@@ -23,30 +23,68 @@ public sealed class CommitService : ICommitService
     }
 
     /// <inheritdoc/>
-    public Task<IReadOnlyList<FileChange>> GetStatusAsync(string repositoryPath, CancellationToken ct = default)
+    public async Task<IReadOnlyList<FileChange>> GetStatusAsync(string repositoryPath, CancellationToken ct = default)
     {
-        // TODO: git status --porcelain=v2 -z --untracked-files=all を実行し GitOutputParser.ParseStatus に渡す
-        throw new NotImplementedException();
+        // --no-optional-locks: status がインデックスを書き換えないようにする(書き換えると RepositoryWatcher が反応し、更新が繰り返される)
+        GitResult result = await _runner.RunAsync(
+            repositoryPath,
+            new[] { "--no-optional-locks", "status", "--porcelain=v2", "-z", "--untracked-files=all" },
+            ct: ct).ConfigureAwait(false);
+
+        if (!result.IsSuccess)
+        {
+            throw new InvalidOperationException(result.StandardError);
+        }
+
+        return _parser.ParseStatus(result.StandardOutput);
     }
 
     /// <inheritdoc/>
     public Task<GitResult> StageAsync(string repositoryPath, IReadOnlyList<string> paths, CancellationToken ct = default)
     {
-        // TODO: git add -- <paths...> を実行
-        throw new NotImplementedException();
+        if (paths.Count == 0)
+        {
+            return Task.FromResult(new GitResult(0, string.Empty, string.Empty));
+        }
+
+        var arguments = new List<string> { "add", "--" };
+        arguments.AddRange(paths);
+        return _runner.RunAsync(repositoryPath, arguments, ct: ct);
     }
 
     /// <inheritdoc/>
-    public Task<GitResult> UnstageAsync(string repositoryPath, IReadOnlyList<string> paths, CancellationToken ct = default)
+    public async Task<GitResult> UnstageAsync(string repositoryPath, IReadOnlyList<string> paths, CancellationToken ct = default)
     {
-        // TODO: git restore --staged -- <paths...> を実行
-        throw new NotImplementedException();
+        if (paths.Count == 0)
+        {
+            return new GitResult(0, string.Empty, string.Empty);
+        }
+
+        // コミットがまだ 1 つもないリポジトリでは restore --staged が使えないため、rm --cached で外す
+        GitResult head = await _runner.RunAsync(repositoryPath, new[] { "rev-parse", "--verify", "--quiet", "HEAD" }, ct: ct).ConfigureAwait(false);
+
+        var arguments = head.IsSuccess
+            ? new List<string> { "restore", "--staged", "--" }
+            : new List<string> { "rm", "--cached", "--quiet", "-r", "--" };
+        arguments.AddRange(paths);
+        return await _runner.RunAsync(repositoryPath, arguments, ct: ct).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
-    public Task<GitResult> CommitAsync(string repositoryPath, string message, bool amend, CancellationToken ct = default)
+    public async Task<GitResult> CommitAsync(string repositoryPath, string message, bool amend, CancellationToken ct = default)
     {
-        // TODO: メッセージを一時ファイル(UTF-8)に書き、git commit [--amend] -F <tmp> を実行
-        throw new NotImplementedException();
+        // メッセージは引数だと改行や引用符の扱いが難しいため、一時ファイル(UTF-8)経由で渡す
+        using var messageFile = new TempMessageFile(message);
+
+        var arguments = new List<string> { "commit" };
+        if (amend)
+        {
+            arguments.Add("--amend");
+        }
+
+        arguments.Add("-F");
+        arguments.Add(messageFile.Path);
+
+        return await _runner.RunAsync(repositoryPath, arguments, ct: ct).ConfigureAwait(false);
     }
 }

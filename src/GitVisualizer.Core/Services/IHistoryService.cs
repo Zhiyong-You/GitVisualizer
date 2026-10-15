@@ -15,6 +15,13 @@ public interface IHistoryService
     /// <returns>コミット一覧(トポロジカル順、新しい順)。</returns>
     Task<IReadOnlyList<CommitInfo>> GetLogAsync(string repositoryPath, int maxCount, CancellationToken ct = default);
 
+    /// <summary>コミットで変更されたファイルを取得します(マージコミットは第 1 親との差分)。</summary>
+    /// <param name="repositoryPath">リポジトリのルートパス。</param>
+    /// <param name="commitSha">対象のコミット SHA。</param>
+    /// <param name="ct">キャンセルトークン。</param>
+    /// <returns>変更ファイル一覧。</returns>
+    Task<IReadOnlyList<FileChange>> GetCommitChangesAsync(string repositoryPath, string commitSha, CancellationToken ct = default);
+
     /// <summary>現在のブランチをリベースします。</summary>
     /// <param name="repositoryPath">リポジトリのルートパス。</param>
     /// <param name="options">rebase 設定。</param>

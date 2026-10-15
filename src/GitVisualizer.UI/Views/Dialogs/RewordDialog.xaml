@@ -3,10 +3,39 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vsshell="clr-namespace:Microsoft.VisualStudio.Shell;assembly=Microsoft.VisualStudio.Shell.15.0"
              xmlns:dialogs="clr-namespace:GitVisualizer.UI.ViewModels.Dialogs"
              mc:Ignorable="d"
              d:DataContext="{d:DesignInstance Type=dialogs:RewordDialogViewModel}"
              d:DesignWidth="400" d:DesignHeight="200">
-    <!-- TODO: 「コミットメッセージ変更」ダイアログの入力欄と OK / キャンセルボタンを配置する(VS 側で DialogWindow に載せて表示する) -->
-    <Grid />
+    <UserControl.Resources>
+        <ResourceDictionary Source="pack://application:,,,/GitVisualizer.UI;component/Views/Dialogs/DialogStyles.xaml" />
+    </UserControl.Resources>
+    <UserControl.Style>
+        <StaticResource ResourceKey="DialogRootStyle" />
+    </UserControl.Style>
+
+    <StackPanel Width="480">
+        <TextBlock Style="{StaticResource DialogHeaderStyle}">
+            <Run Text="コミット: " /><Run Text="{Binding Commit.Sha, Mode=OneWay}" />
+        </TextBlock>
+
+        <TextBlock Text="新しいコミットメッセージ:" Style="{StaticResource DialogLabelStyle}" />
+        <TextBox Height="140"
+                 Text="{Binding Message, UpdateSourceTrigger=PropertyChanged}"
+                 AcceptsReturn="True"
+                 TextWrapping="Wrap"
+                 VerticalScrollBarVisibility="Auto"
+                 VerticalContentAlignment="Top"
+                 Style="{DynamicResource {x:Static vsshell:VsResourceKeys.TextBoxStyleKey}}" />
+        <TextBlock Text="過去のコミットを変更すると、それ以降のコミットの SHA も変わります。push 済みの場合は強制 push が必要です。"
+                   Style="{StaticResource DialogNoteStyle}" Margin="0,8,0,0" />
+
+        <StackPanel Style="{StaticResource DialogButtonPanelStyle}">
+            <Button Content="変更" Command="{Binding OkCommand}" MinWidth="90" Margin="0,0,6,0" Padding="10,2"
+                    Style="{DynamicResource {x:Static vsshell:VsResourceKeys.ButtonStyleKey}}" />
+            <Button Content="キャンセル" Command="{Binding CancelCommand}" IsCancel="True" MinWidth="90" Padding="10,2"
+                    Style="{DynamicResource {x:Static vsshell:VsResourceKeys.ButtonStyleKey}}" />
+        </StackPanel>
+    </StackPanel>
 </UserControl>

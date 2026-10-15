@@ -56,11 +56,12 @@
         <!-- 一覧の行。選択色を VS テーマに合わせるためテンプレートを差し替える -->
         <Style x:Key="ThemedListItemStyle" TargetType="ListBoxItem">
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Padding" Value="4,2" />
             <Setter Property="Foreground" Value="{DynamicResource {x:Static platformUI:TreeViewColors.BackgroundTextBrushKey}}" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ListBoxItem">
-                        <Border x:Name="Bd" Background="Transparent" Padding="4,2">
+                        <Border x:Name="Bd" Background="Transparent" Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" />
                         </Border>
                         <ControlTemplate.Triggers>
@@ -80,6 +81,11 @@
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+        </Style>
+
+        <!-- コミット履歴の行。グラフの線が上下の行とつながるよう、上下の余白をなくす -->
+        <Style x:Key="HistoryListItemStyle" TargetType="ListBoxItem" BasedOn="{StaticResource ThemedListItemStyle}">
+            <Setter Property="Padding" Value="4,0" />
         </Style>
 
         <Style x:Key="SplitterStyle" TargetType="GridSplitter">
@@ -105,6 +111,10 @@
                 BorderBrush="{DynamicResource {x:Static platformUI:EnvironmentColors.CommandBarToolBarBorderBrushKey}}"
                 BorderThickness="0,0,0,1">
             <StackPanel Orientation="Horizontal" DataContext="{Binding Toolbar}">
+                <Button Content="更新" ToolTip="リポジトリを再読み込みします"
+                        Command="{Binding DataContext.RefreshCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                        Style="{DynamicResource {x:Static vsshell:VsResourceKeys.ButtonStyleKey}}"
+                        Margin="0,0,12,0" Padding="10,2" MinWidth="60" />
                 <Button Content="Fetch" Command="{Binding FetchCommand}"
                         Style="{DynamicResource {x:Static vsshell:VsResourceKeys.ButtonStyleKey}}"
                         Margin="0,0,4,0" Padding="10,2" MinWidth="60" />
@@ -138,11 +148,19 @@
             <Border Grid.Column="0" Style="{StaticResource PaneBorderStyle}">
                 <DockPanel>
                     <TextBlock DockPanel.Dock="Top" Text="ブランチ" Style="{StaticResource PaneHeaderStyle}" />
-                    <!-- TODO: TreeView.SelectedItem は読み取り専用のため、BranchTree.SelectedBranch との連動は SelectedItemChanged 等で実装する -->
+                    <!-- TreeView.SelectedItem は読み取り専用のため、BranchTree.SelectedBranch との連動は SelectedItemChanged(コードビハインド)で行う -->
                     <TreeView DataContext="{Binding BranchTree}"
                               Background="Transparent"
                               BorderThickness="0"
+                              ToolTip="ダブルクリックでチェックアウト"
+                              SelectedItemChanged="OnBranchTreeSelectedItemChanged"
+                              MouseDoubleClick="OnBranchTreeMouseDoubleClick"
                               Foreground="{DynamicResource {x:Static platformUI:TreeViewColors.BackgroundTextBrushKey}}">
+                        <TreeView.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="チェックアウト..." Command="{Binding CheckoutSelectedCommand}" />
+                            </ContextMenu>
+                        </TreeView.ContextMenu>
                         <TreeView.Resources>
                             <DataTemplate x:Key="BranchItemTemplate">
                                 <TextBlock x:Name="Text" Text="{Binding Name}" />
@@ -168,42 +186,81 @@
             <!-- 中央: コミット履歴 ListView -->
             <Border Grid.Column="2" Style="{StaticResource PaneBorderStyle}">
                 <DockPanel DataContext="{Binding CommitHistory}">
-                    <TextBlock DockPanel.Dock="Top" Text="コミット履歴" Style="{StaticResource PaneHeaderStyle}" />
+                    <DockPanel DockPanel.Dock="Top" LastChildFill="False">
+                        <TextBlock DockPanel.Dock="Left" Text="コミット履歴" Style="{StaticResource PaneHeaderStyle}" />
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,4,0">
+                            <Button Content="リベース..." Command="{Binding RebaseCommand}" ToolTip="現在のブランチを選択したコミット(ブランチ)にリベースします"
+                                    Margin="4,2,0,2" Padding="6,0" Style="{DynamicResource {x:Static vsshell:VsResourceKeys.ButtonStyleKey}}" />
+                            <Button Content="チェリーピック..." Command="{Binding CherryPickCommand}" ToolTip="選択したコミットを現在のブランチに取り込みます"
+                                    Margin="4,2,0,2" Padding="6,0" Style="{DynamicResource {x:Static vsshell:VsResourceKeys.ButtonStyleKey}}" />
+                            <Button Content="メッセージ変更..." Command="{Binding RewordCommand}" ToolTip="選択したコミットのメッセージを変更します"
+                                    Margin="4,2,0,2" Padding="6,0" Style="{DynamicResource {x:Static vsshell:VsResourceKeys.ButtonStyleKey}}" />
+                        </StackPanel>
+                    </DockPanel>
                     <!-- 列見出し(列幅は下の ItemTemplate と合わせる) -->
                     <Grid DockPanel.Dock="Top" Margin="4,0,4,2" Opacity="0.75">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="80" />
+                            <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="120" />
                             <ColumnDefinition Width="120" />
                             <ColumnDefinition Width="70" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="グラフ" />
+                        <TextBlock Grid.Column="0" Text="グラフ" Width="{Binding GraphColumnWidth}" MinWidth="40" />
                         <TextBlock Grid.Column="1" Text="メッセージ" />
                         <TextBlock Grid.Column="2" Text="作成者" />
                         <TextBlock Grid.Column="3" Text="日時" />
                         <TextBlock Grid.Column="4" Text="SHA" />
                     </Grid>
                     <ListView ItemsSource="{Binding Commits}"
-                              SelectedItem="{Binding SelectedCommit}"
+                              SelectedItem="{Binding SelectedRow}"
+                              VirtualizingPanel.IsVirtualizing="True"
+                              VirtualizingPanel.VirtualizationMode="Recycling"
                               Style="{StaticResource ThemedListStyle}"
-                              ItemContainerStyle="{StaticResource ThemedListItemStyle}">
+                              ItemContainerStyle="{StaticResource HistoryListItemStyle}">
+                        <ListView.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="このコミットにリベース..." Command="{Binding RebaseCommand}" />
+                                <MenuItem Header="チェリーピック..." Command="{Binding CherryPickCommand}" />
+                                <MenuItem Header="コミットメッセージを変更..." Command="{Binding RewordCommand}" />
+                            </ContextMenu>
+                        </ListView.ContextMenu>
                         <ListView.ItemTemplate>
                             <DataTemplate>
                                 <Grid>
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="80" />
+                                        <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="120" />
                                         <ColumnDefinition Width="120" />
                                         <ColumnDefinition Width="70" />
                                     </Grid.ColumnDefinitions>
-                                    <!-- TODO: Node に CommitGraphBuilder の結果(GraphNode)をバインドする -->
-                                    <controls:CommitGraphCell Grid.Column="0" Height="18" />
-                                    <TextBlock Grid.Column="1" Text="{Binding Subject}" TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Grid.Column="2" Text="{Binding AuthorName}" TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Grid.Column="3" Text="{Binding AuthorDate, StringFormat='yyyy/MM/dd HH:mm'}" />
-                                    <TextBlock Grid.Column="4" Text="{Binding Sha}" TextTrimming="CharacterEllipsis" />
+                                    <controls:CommitGraphCell Grid.Column="0" Height="22" MinWidth="40" Node="{Binding Node}"
+                                                              Width="{Binding DataContext.GraphColumnWidth, RelativeSource={RelativeSource AncestorType=ListView}}" />
+                                    <DockPanel Grid.Column="1" VerticalAlignment="Center">
+                                        <!-- ブランチ・タグ名 -->
+                                        <ItemsControl DockPanel.Dock="Left" ItemsSource="{Binding Refs}"
+                                                      Visibility="{Binding HasRefs, Converter={StaticResource BoolToVisibility}}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <StackPanel Orientation="Horizontal" />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Margin="0,0,4,0" Padding="4,0" CornerRadius="2" BorderThickness="1"
+                                                            BorderBrush="{DynamicResource {x:Static platformUI:EnvironmentColors.ToolWindowBorderBrushKey}}"
+                                                            Background="{DynamicResource {x:Static platformUI:EnvironmentColors.ToolWindowBackgroundBrushKey}}">
+                                                        <TextBlock Text="{Binding}" FontSize="11" />
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <TextBlock Text="{Binding Subject}" TextTrimming="CharacterEllipsis" />
+                                    </DockPanel>
+                                    <TextBlock Grid.Column="2" Text="{Binding AuthorName}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                    <TextBlock Grid.Column="3" Text="{Binding AuthorDate, StringFormat='yyyy/MM/dd HH:mm'}" VerticalAlignment="Center" />
+                                    <TextBlock Grid.Column="4" Text="{Binding ShortSha}" VerticalAlignment="Center" FontFamily="Consolas" />
                                 </Grid>
                             </DataTemplate>
                         </ListView.ItemTemplate>
@@ -236,7 +293,7 @@
                             <DataTemplate>
                                 <DockPanel>
                                     <TextBlock DockPanel.Dock="Left" Width="80" Text="{Binding Kind}" Opacity="0.75" />
-                                    <TextBlock Text="{Binding Path}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding Path}" ToolTip="{Binding OldPath}" TextTrimming="CharacterEllipsis" />
                                 </DockPanel>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
@@ -257,7 +314,15 @@
 
             <Border Grid.Column="0" Style="{StaticResource PaneBorderStyle}">
                 <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="変更ファイル" Style="{StaticResource PaneHeaderStyle}" />
+                    <DockPanel DockPanel.Dock="Top" LastChildFill="False">
+                        <TextBlock DockPanel.Dock="Left" Text="変更ファイル(チェック = ステージ済み)" Style="{StaticResource PaneHeaderStyle}" />
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,4,0">
+                            <Button Content="すべてステージ" Command="{Binding StageAllCommand}"
+                                    Margin="4,2,0,2" Padding="6,0" Style="{DynamicResource {x:Static vsshell:VsResourceKeys.ButtonStyleKey}}" />
+                            <Button Content="すべて解除" Command="{Binding UnstageAllCommand}"
+                                    Margin="4,2,0,2" Padding="6,0" Style="{DynamicResource {x:Static vsshell:VsResourceKeys.ButtonStyleKey}}" />
+                        </StackPanel>
+                    </DockPanel>
                     <ListView ItemsSource="{Binding Changes}"
                               SelectedItem="{Binding SelectedChange}"
                               Style="{StaticResource ThemedListStyle}"
@@ -265,11 +330,13 @@
                         <ListView.ItemTemplate>
                             <DataTemplate>
                                 <DockPanel>
-                                    <!-- TODO: ステージ/アンステージ操作(StageCommand / UnstageCommand)を割り当てる -->
-                                    <CheckBox DockPanel.Dock="Left" IsChecked="{Binding IsStaged, Mode=OneWay}" IsHitTestVisible="False" Margin="0,0,6,0"
+                                    <!-- チェックの切り替えでステージ / ステージ解除(git add / git restore) -->
+                                    <CheckBox DockPanel.Dock="Left" IsChecked="{Binding IsStaged, Mode=OneWay}" Margin="0,0,6,0"
+                                              Command="{Binding DataContext.ToggleStageCommand, RelativeSource={RelativeSource AncestorType=ListView}}"
+                                              CommandParameter="{Binding}"
                                               Style="{DynamicResource {x:Static vsshell:VsResourceKeys.CheckBoxStyleKey}}" />
                                     <TextBlock DockPanel.Dock="Left" Width="80" Text="{Binding Kind}" Opacity="0.75" />
-                                    <TextBlock Text="{Binding Path}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding Path}" ToolTip="{Binding OldPath}" TextTrimming="CharacterEllipsis" />
                                 </DockPanel>
                             </DataTemplate>
                         </ListView.ItemTemplate>
@@ -312,7 +379,7 @@
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
                             Visibility="{Binding IsOperationInProgress, Converter={StaticResource BoolToVisibility}}">
                     <TextBlock VerticalAlignment="Center" Margin="0,0,6,0">
-                        <Run Text="{Binding CurrentOperation, Mode=OneWay}" /><Run Text=" 中" />
+                        <Run Text="{Binding OperationDisplayName, Mode=OneWay}" /><Run Text=" 中(競合を解決してステージしてから続行)" />
                     </TextBlock>
                     <Button Content="続行" Command="{Binding ContinueCommand}" Margin="0,0,4,0" Padding="8,0"
                             Style="{DynamicResource {x:Static vsshell:VsResourceKeys.ButtonStyleKey}}" />

@@ -17,6 +17,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\GitVisualizer.Core\GitVisualizer.Core.csproj" />
+    <!-- reword の結合テストで GitEditorHelper.exe を出力フォルダにコピーして使う -->
+    <ProjectReference Include="..\..\src\GitEditorHelper\GitEditorHelper.csproj" />
   </ItemGroup>
 
 </Project>

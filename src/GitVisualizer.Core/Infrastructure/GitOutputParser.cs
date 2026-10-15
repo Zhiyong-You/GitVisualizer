@@ -70,9 +70,9 @@ public sealed class GitOutputParser
     /// <returns>コミット一覧(新しい順)。</returns>
     public IReadOnlyList<CommitInfo> ParseLog(string input)
     {
-        // TODO: git log -z --format="%H%x00%P%x00%an%x00%ae%x00%aI%x00%D%x00%s%x00%b" の出力を解析
+        // git log -z --format="%H%x00%P%x00%an%x00%ae%x00%aI%x00%D%x00%s%x00%b" の出力を解析
         // Format: SHA\0Parents\0AuthorName\0AuthorEmail\0AuthorDateISO\0Refs\0Subject\0Body\0
-        
+
         var commits = new List<CommitInfo>();
         
         if (string.IsNullOrEmpty(input))
@@ -93,7 +93,8 @@ public sealed class GitOutputParser
             var authorDateStr = records[i + 4];
             var refsStr = records[i + 5];
             var subject = records[i + 6];
-            var body = records[i + 7];
+            // %b は末尾に改行が付く
+            var body = records[i + 7].TrimEnd('\r', '\n');
 
             // Parse parent SHAs (space-separated, empty string means no parents)
             var parentShas = string.IsNullOrEmpty(parentShasStr)
@@ -101,7 +102,7 @@ public sealed class GitOutputParser
                 : parentShasStr.Split(' ');
 
             // Parse author date (ISO 8601 format, ex: 2026-10-01T10:30:00+09:00)
-            var authorDate = DateTimeOffset.Parse(authorDateStr);
+            var authorDate = DateTimeOffset.Parse(authorDateStr, CultureInfo.InvariantCulture);
 
             // Parse refs (format: "HEAD -> branch, tag: v1.0, origin/branch")
             var refs = ParseRefs(refsStr);
@@ -247,6 +248,64 @@ public sealed class GitOutputParser
             kind,
             isStaged,
             oldPath));
+
+        // 名前変更をステージした後で作業ツリーも変更した場合("RM" など)は、未ステージ側の変更も追加する
+        if (isStaged && status.Length >= 2 && status[1] != '.')
+        {
+            FileChangeKind? workTreeKind = ConvertStatus(status[1]);
+            if (workTreeKind.HasValue)
+            {
+                changes.Add(new FileChange(path, workTreeKind.Value, isStaged: false));
+            }
+        }
+    }
+
+    /// <summary>コミットで変更されたファイル一覧の出力を解析します。</summary>
+    /// <param name="output"><c>git show --name-status -z --format=</c> の標準出力。</param>
+    /// <returns>変更ファイル一覧(<see cref="FileChange.IsStaged"/> は常に <see langword="false"/>)。</returns>
+    public IReadOnlyList<FileChange> ParseNameStatus(string output)
+    {
+        // 形式: "M\0path\0"、名前変更・コピーは "R100\0old\0new\0"
+        var changes = new List<FileChange>();
+        if (string.IsNullOrEmpty(output))
+        {
+            return changes;
+        }
+
+        string[] fields = output.Split(FieldSeparator);
+        int i = 0;
+        while (i < fields.Length)
+        {
+            string status = fields[i].Trim();
+            if (status.Length == 0)
+            {
+                i++;
+                continue;
+            }
+
+            char code = status[0];
+            if ((code == 'R' || code == 'C') && i + 2 < fields.Length)
+            {
+                changes.Add(new FileChange(
+                    fields[i + 2],
+                    code == 'R' ? FileChangeKind.Renamed : FileChangeKind.Copied,
+                    isStaged: false,
+                    oldPath: fields[i + 1]));
+                i += 3;
+                continue;
+            }
+
+            if (i + 1 >= fields.Length)
+            {
+                break;
+            }
+
+            FileChangeKind kind = code == 'U' ? FileChangeKind.Conflicted : ConvertStatus(code) ?? FileChangeKind.Modified;
+            changes.Add(new FileChange(fields[i + 1], kind, isStaged: false));
+            i += 2;
+        }
+
+        return changes;
     }
 
     private static void ParseUnmergedRecord(string record, List<FileChange> changes)

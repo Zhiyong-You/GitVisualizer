@@ -1,9 +1,11 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GitVisualizer.Core.Models;
 using GitVisualizer.Core.Services;
+using GitVisualizer.UI.Abstractions;
 
 namespace GitVisualizer.UI.ViewModels;
 
@@ -12,13 +14,15 @@ public sealed partial class OperationStateViewModel : ObservableObject
 {
     private readonly IHistoryService _historyService;
     private readonly IRepositoryStateService _repositoryStateService;
+    private readonly IDialogService _dialogService;
+    private readonly GitOperationContext _context;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsOperationInProgress))]
+    [NotifyPropertyChangedFor(nameof(IsOperationInProgress), nameof(OperationDisplayName))]
     private RepositoryOperation _currentOperation;
 
     [ObservableProperty]
-    private string _statusMessage = string.Empty;
+    private string _statusMessage = "準備完了";
 
     [ObservableProperty]
     private string _currentBranchName = string.Empty;
@@ -29,37 +33,74 @@ public sealed partial class OperationStateViewModel : ObservableObject
     /// <summary><see cref="OperationStateViewModel"/> を初期化します。</summary>
     /// <param name="historyService">履歴サービス(continue / skip / abort に使う)。</param>
     /// <param name="repositoryStateService">リポジトリ状態サービス。</param>
-    public OperationStateViewModel(IHistoryService historyService, IRepositoryStateService repositoryStateService)
+    /// <param name="dialogService">ダイアログサービス(中止の確認に使う)。</param>
+    /// <param name="context">操作対象リポジトリと操作の実行手順。</param>
+    public OperationStateViewModel(IHistoryService historyService, IRepositoryStateService repositoryStateService, IDialogService dialogService, GitOperationContext context)
     {
         _historyService = historyService;
         _repositoryStateService = repositoryStateService;
-
-        // TODO: ダミーデータ。実装時に削除する
-        StatusMessage = "準備完了(ダミー表示)";
-        CurrentBranchName = "main";
+        _dialogService = dialogService;
+        _context = context;
     }
 
     /// <summary>中断中の操作があるかどうか。</summary>
     public bool IsOperationInProgress => CurrentOperation != RepositoryOperation.None;
 
+    /// <summary>中断中の操作の表示名。</summary>
+    public string OperationDisplayName => CurrentOperation switch
+    {
+        RepositoryOperation.Rebase => "リベース",
+        RepositoryOperation.CherryPick => "チェリーピック",
+        RepositoryOperation.Revert => "リバート",
+        RepositoryOperation.Merge => "マージ",
+        _ => string.Empty,
+    };
+
+    [RelayCommand]
+    private async Task RefreshAsync(CancellationToken ct)
+    {
+        string? path = _context.RepositoryPath;
+        if (path == null)
+        {
+            CurrentOperation = RepositoryOperation.None;
+            return;
+        }
+
+        try
+        {
+            CurrentOperation = await _repositoryStateService.GetOperationAsync(path, ct);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            _context.ReportLoadError("リポジトリの状態の取得", ex);
+        }
+    }
+
     [RelayCommand]
     private Task ContinueAsync(CancellationToken ct)
     {
-        // TODO: IHistoryService.ContinueAsync を呼ぶ(git rebase --continue / git cherry-pick --continue)
-        return Task.CompletedTask;
+        // 競合を解決したファイルはステージしておく必要がある(git rebase --continue / git cherry-pick --continue)
+        return _context.RunAsync($"{OperationDisplayName}の続行", (path, token) => _historyService.ContinueAsync(path, token), ct);
     }
 
     [RelayCommand]
     private Task SkipAsync(CancellationToken ct)
     {
-        // TODO: IHistoryService.SkipAsync を呼ぶ(git rebase --skip / git cherry-pick --skip)
-        return Task.CompletedTask;
+        return _context.RunAsync($"{OperationDisplayName}のスキップ", (path, token) => _historyService.SkipAsync(path, token), ct);
     }
 
     [RelayCommand]
-    private Task AbortAsync(CancellationToken ct)
+    private async Task AbortAsync(CancellationToken ct)
     {
-        // TODO: IHistoryService.AbortAsync を呼ぶ(git rebase --abort / git cherry-pick --abort)
-        return Task.CompletedTask;
+        string name = OperationDisplayName;
+        if (!await _dialogService.ConfirmAsync($"{name}を中止して、開始前の状態に戻しますか?", ct))
+        {
+            return;
+        }
+
+        await _context.RunAsync($"{name}の中止", (path, token) => _historyService.AbortAsync(path, token), ct);
     }
 }

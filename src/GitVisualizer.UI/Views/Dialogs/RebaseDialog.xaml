@@ -3,10 +3,40 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vsshell="clr-namespace:Microsoft.VisualStudio.Shell;assembly=Microsoft.VisualStudio.Shell.15.0"
+             xmlns:platformUI="clr-namespace:Microsoft.VisualStudio.PlatformUI;assembly=Microsoft.VisualStudio.Shell.15.0"
              xmlns:dialogs="clr-namespace:GitVisualizer.UI.ViewModels.Dialogs"
              mc:Ignorable="d"
              d:DataContext="{d:DesignInstance Type=dialogs:RebaseDialogViewModel}"
              d:DesignWidth="400" d:DesignHeight="200">
-    <!-- TODO: 「リベース」ダイアログの入力欄と OK / キャンセルボタンを配置する(VS 側で DialogWindow に載せて表示する) -->
-    <Grid />
+    <UserControl.Resources>
+        <ResourceDictionary Source="pack://application:,,,/GitVisualizer.UI;component/Views/Dialogs/DialogStyles.xaml" />
+    </UserControl.Resources>
+    <UserControl.Style>
+        <StaticResource ResourceKey="DialogRootStyle" />
+    </UserControl.Style>
+
+    <StackPanel>
+        <TextBlock Style="{StaticResource DialogHeaderStyle}">
+            <Run Text="リベースするブランチ: " /><Run Text="{Binding CurrentBranchName, Mode=OneWay}" />
+        </TextBlock>
+
+        <TextBlock Text="リベース先(ブランチ名またはコミット SHA):" Style="{StaticResource DialogLabelStyle}" />
+        <ComboBox ItemsSource="{Binding Candidates}" IsEditable="True"
+                  Text="{Binding Onto, UpdateSourceTrigger=PropertyChanged}"
+                  Style="{DynamicResource {x:Static vsshell:VsResourceKeys.ComboBoxStyleKey}}" />
+
+        <CheckBox Content="未コミットの変更を自動で退避・復元する(--autostash)" Margin="0,10,0,0"
+                  IsChecked="{Binding AutoStash}"
+                  Foreground="{DynamicResource {x:Static platformUI:EnvironmentColors.ToolWindowTextBrushKey}}"
+                  Style="{DynamicResource {x:Static vsshell:VsResourceKeys.CheckBoxStyleKey}}" />
+        <TextBlock Text="競合で止まった場合は、競合を解決してステージし、ステータスバーの「続行」を押してください。" Style="{StaticResource DialogNoteStyle}" Margin="0,8,0,0" />
+
+        <StackPanel Style="{StaticResource DialogButtonPanelStyle}">
+            <Button Content="リベース" Command="{Binding OkCommand}" IsDefault="True" MinWidth="90" Margin="0,0,6,0" Padding="10,2"
+                    Style="{DynamicResource {x:Static vsshell:VsResourceKeys.ButtonStyleKey}}" />
+            <Button Content="キャンセル" Command="{Binding CancelCommand}" IsCancel="True" MinWidth="90" Padding="10,2"
+                    Style="{DynamicResource {x:Static vsshell:VsResourceKeys.ButtonStyleKey}}" />
+        </StackPanel>
+    </StackPanel>
 </UserControl>

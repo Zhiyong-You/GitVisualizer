@@ -1,9 +1,14 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using GitVisualizer.Core.Infrastructure;
+using GitVisualizer.Core.Models;
 using GitVisualizer.UI.Abstractions;
 using Microsoft.VisualStudio.Shell;
+using Microsoft.VisualStudio.Shell.Interop;
+using Microsoft.VisualStudio.Threading;
+using SolutionEvents = Microsoft.VisualStudio.Shell.Events.SolutionEvents;
 
 namespace GitVisualizer.Vsix.VsServices;
 
@@ -20,19 +25,55 @@ internal sealed class VsSolutionRepositoryLocator : IRepositoryLocator
     {
         _package = package;
         _runner = runner;
+
+        // ソリューション / フォルダを開いた・閉じたときにリポジトリが変わる
+        SolutionEvents.OnAfterOpenSolution += (_, _) => RaiseRepositoryChanged();
+        SolutionEvents.OnAfterCloseSolution += (_, _) => RaiseRepositoryChanged();
+        SolutionEvents.OnAfterOpenFolder += (_, _) => RaiseRepositoryChanged();
+        SolutionEvents.OnAfterCloseFolder += (_, _) => RaiseRepositoryChanged();
     }
 
-    // TODO: 実装時に削除(未使用イベントの警告 CS0067 を抑止している)。
-    //       Microsoft.VisualStudio.Shell.Events.SolutionEvents の OnAfterOpenSolution / OnAfterCloseSolution で発火させる
-#pragma warning disable CS0067
     /// <inheritdoc/>
     public event EventHandler? RepositoryChanged;
-#pragma warning restore CS0067
 
     /// <inheritdoc/>
-    public Task<string?> GetRepositoryRootAsync(CancellationToken ct = default)
+    public async Task<string?> GetRepositoryRootAsync(CancellationToken ct = default)
     {
-        // TODO: IVsSolution.GetSolutionInfo でソリューションのフォルダを取得し、そこで git rev-parse --show-toplevel を実行する
-        throw new NotImplementedException();
+        string? directory = await GetSolutionDirectoryAsync(ct);
+        if (string.IsNullOrEmpty(directory) || !Directory.Exists(directory))
+        {
+            return null;
+        }
+
+        // git の実行は UI スレッドを塞がないようにバックグラウンドで行う
+        await TaskScheduler.Default;
+        GitResult result = await _runner.RunAsync(directory!, new[] { "rev-parse", "--show-toplevel" }, ct: ct);
+        if (!result.IsSuccess)
+        {
+            return null;
+        }
+
+        // git は "C:/repo" の形式で返すので、Windows のパス表記にそろえる
+        string root = result.StandardOutput.Trim();
+        return root.Length == 0 ? null : Path.GetFullPath(root);
+    }
+
+    private async Task<string?> GetSolutionDirectoryAsync(CancellationToken ct)
+    {
+        await _package.JoinableTaskFactory.SwitchToMainThreadAsync(ct);
+
+        if (await _package.GetServiceAsync(typeof(SVsSolution)) is not IVsSolution solution)
+        {
+            return null;
+        }
+
+        // フォルダを開いた場合も、そのフォルダがソリューションのディレクトリとして返る
+        solution.GetSolutionInfo(out string directory, out _, out _);
+        return directory;
+    }
+
+    private void RaiseRepositoryChanged()
+    {
+        RepositoryChanged?.Invoke(this, EventArgs.Empty);
     }
 }

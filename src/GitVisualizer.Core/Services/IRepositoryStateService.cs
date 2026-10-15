@@ -16,4 +16,8 @@ public interface IRepositoryStateService
     /// <param name="ct">キャンセルトークン。</param>
     /// <returns>進行中の操作。なければ <see cref="RepositoryOperation.None"/>。</returns>
     Task<RepositoryOperation> GetOperationAsync(string repositoryPath, CancellationToken ct = default);
+
+    /// <summary>監視するリポジトリを切り替えます。変更があると <see cref="Changed"/> が発生します。</summary>
+    /// <param name="repositoryPath">監視するリポジトリのルートパス。<see langword="null"/> なら監視を止めます。</param>
+    void Watch(string? repositoryPath);
 }

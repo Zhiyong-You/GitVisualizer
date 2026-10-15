@@ -61,9 +61,83 @@ public sealed class BranchService : IBranchService
     }
 
     /// <inheritdoc/>
-    public Task<GitResult> CheckoutAsync(string repositoryPath, BranchInfo branch, CheckoutOptions options, CancellationToken ct = default)
+    public async Task<GitResult> CheckoutAsync(string repositoryPath, BranchInfo branch, CheckoutOptions options, CancellationToken ct = default)
     {
-        // TODO: git switch <name>(リモートなら --track)を実行。未コミット変更の扱いは options.Handling に従う(Stash: git stash push/pop、Discard: --discard-changes)
-        throw new NotImplementedException();
+        // 切り替え先に応じた git switch の引数を決める
+        List<string> switchArgs = await BuildSwitchArgumentsAsync(repositoryPath, branch, options, ct).ConfigureAwait(false);
+
+        if (options.Handling == ChangeHandling.Discard)
+        {
+            // 未コミット変更を破棄して切り替える
+            switchArgs.Insert(1, "--discard-changes");
+        }
+
+        if (options.Handling != ChangeHandling.Stash)
+        {
+            return await _runner.RunAsync(repositoryPath, switchArgs, ct: ct).ConfigureAwait(false);
+        }
+
+        // Stash: 退避 → 切り替え → 復元。退避するものがなかった場合は復元しない
+        string? stashBefore = await GetStashTopAsync(repositoryPath, ct).ConfigureAwait(false);
+        GitResult push = await _runner.RunAsync(
+            repositoryPath,
+            new[] { "stash", "push", "--include-untracked", "-m", "GitVisualizer: checkout " + branch.Name },
+            ct: ct).ConfigureAwait(false);
+        if (!push.IsSuccess)
+        {
+            return push;
+        }
+
+        string? stashAfter = await GetStashTopAsync(repositoryPath, ct).ConfigureAwait(false);
+        bool stashed = stashAfter != null && stashAfter != stashBefore;
+
+        GitResult switchResult = await _runner.RunAsync(repositoryPath, switchArgs, ct: ct).ConfigureAwait(false);
+        if (!stashed)
+        {
+            return GitResults.Combine(push, switchResult);
+        }
+
+        // 切り替えに失敗しても、退避した変更は元のブランチに戻す
+        GitResult pop = await _runner.RunAsync(repositoryPath, new[] { "stash", "pop" }, ct: ct).ConfigureAwait(false);
+        return switchResult.IsSuccess
+            ? GitResults.Combine(push, switchResult, pop)
+            : GitResults.Combine(push, pop, switchResult);
+    }
+
+    private async Task<List<string>> BuildSwitchArgumentsAsync(string repositoryPath, BranchInfo branch, CheckoutOptions options, CancellationToken ct)
+    {
+        if (!branch.IsRemote)
+        {
+            return new List<string> { "switch", branch.Name };
+        }
+
+        if (!options.CreateTrackingBranch)
+        {
+            // 追跡ブランチを作らない場合は、リモートブランチの先端を detached HEAD でチェックアウトする
+            return new List<string> { "switch", "--detach", branch.Name };
+        }
+
+        // "origin/feature/x" → ローカル名 "feature/x"
+        int slash = branch.Name.IndexOf('/');
+        string localName = slash < 0 ? branch.Name : branch.Name.Substring(slash + 1);
+
+        // 同名のローカルブランチが既にあれば、それに切り替える
+        GitResult exists = await _runner.RunAsync(
+            repositoryPath,
+            new[] { "rev-parse", "--verify", "--quiet", "refs/heads/" + localName },
+            ct: ct).ConfigureAwait(false);
+
+        return exists.IsSuccess
+            ? new List<string> { "switch", localName }
+            : new List<string> { "switch", "--create", localName, "--track", branch.Name };
+    }
+
+    private async Task<string?> GetStashTopAsync(string repositoryPath, CancellationToken ct)
+    {
+        GitResult result = await _runner.RunAsync(
+            repositoryPath,
+            new[] { "rev-parse", "--verify", "--quiet", "refs/stash" },
+            ct: ct).ConfigureAwait(false);
+        return result.IsSuccess ? result.StandardOutput.Trim() : null;
     }
 }
