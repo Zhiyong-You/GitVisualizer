@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using GitVisualizer.Core.Infrastructure;
@@ -76,6 +77,59 @@ public sealed class HistoryService : IHistoryService
 
         return _parser.ParseNameStatus(result.StandardOutput);
     }
+
+    /// <inheritdoc/>
+    public async Task<FileDiff> GetCommitFileDiffAsync(string repositoryPath, CommitInfo commit, FileChange file, CancellationToken ct = default)
+    {
+        // マージコミットは GetCommitChangesAsync(--diff-merges=first-parent)に合わせて第 1 親と比べる。ルートコミットは親なし
+        string? parentSha = commit.ParentShas.Count > 0 ? commit.ParentShas[0] : null;
+        string oldPath = file.OldPath ?? file.Path;
+        bool hasLeft = parentSha != null && file.Kind != FileChangeKind.Added && file.Kind != FileChangeKind.Untracked;
+        bool hasRight = file.Kind != FileChangeKind.Deleted;
+
+        // 拡張子で VS の言語(色分け)が決まるため、ファイル名はそのまま使い、変更前・変更後はフォルダで分ける
+        string session = DiffTempDirectory.CreateSessionDirectory();
+        string leftFile = Path.Combine(session, "before", GetFileName(oldPath));
+        string rightFile = Path.Combine(session, "after", GetFileName(file.Path));
+
+        await WriteBlobAsync(repositoryPath, hasLeft ? parentSha + ":" + oldPath : null, leftFile, ct).ConfigureAwait(false);
+        await WriteBlobAsync(repositoryPath, hasRight ? commit.Sha + ":" + file.Path : null, rightFile, ct).ConfigureAwait(false);
+
+        string shortSha = ShortSha(commit.Sha);
+        string leftLabel = hasLeft ? $"{oldPath} ({ShortSha(parentSha!)})" : $"{oldPath} (変更前なし)";
+        string rightLabel = hasRight ? $"{file.Path} ({shortSha})" : $"{file.Path} (削除)";
+        return new FileDiff(leftFile, rightFile, leftLabel, rightLabel, $"{GetFileName(file.Path)} ({shortSha})");
+    }
+
+    /// <summary><c>&lt;rev&gt;:&lt;path&gt;</c> の内容を読み取り専用のファイルに書き出します。<paramref name="blob"/> が null なら空ファイル。</summary>
+    private async Task WriteBlobAsync(string repositoryPath, string? blob, string destination, CancellationToken ct)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+        if (blob == null)
+        {
+            File.WriteAllBytes(destination, Array.Empty<byte>());
+        }
+        else
+        {
+            // --filters: チェックアウト時と同じ変換(改行コード、smudge フィルタなど)をかけ、作業ツリーのファイルと同じ形にする
+            GitResult result = await _runner.RunToFileAsync(repositoryPath, new[] { "cat-file", "--filters", blob }, destination, ct).ConfigureAwait(false);
+            if (!result.IsSuccess)
+            {
+                throw new InvalidOperationException(result.StandardError);
+            }
+        }
+
+        // 一時ファイルを編集しても元のファイルには反映されないため、読み取り専用にする
+        File.SetAttributes(destination, FileAttributes.ReadOnly);
+    }
+
+    private static string GetFileName(string repositoryRelativePath)
+    {
+        int slash = repositoryRelativePath.LastIndexOf('/');
+        return slash < 0 ? repositoryRelativePath : repositoryRelativePath.Substring(slash + 1);
+    }
+
+    private static string ShortSha(string sha) => sha.Length > 7 ? sha.Substring(0, 7) : sha;
 
     /// <inheritdoc/>
     public Task<GitResult> RebaseAsync(string repositoryPath, RebaseOptions options, CancellationToken ct = default)

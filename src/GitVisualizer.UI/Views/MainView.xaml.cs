@@ -57,6 +57,44 @@ public partial class MainView : UserControl
         }
     }
 
+    private void OnCommitFileMouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        // 項目の上でダブルクリックしたときだけ差分を開く(スクロールバーや余白は無視する)
+        if (FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject) is { DataContext: FileChange file })
+        {
+            e.Handled = true;
+            OpenCommitFileDiff(file);
+        }
+    }
+
+    private void OnCommitFileKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter && sender is ListBox { SelectedItem: FileChange file })
+        {
+            e.Handled = true;
+            OpenCommitFileDiff(file);
+        }
+    }
+
+    private void OpenCommitFileDiff(FileChange file)
+    {
+        if (ViewModel?.CommitDetail.OpenDiffCommand is { } command && command.CanExecute(file))
+        {
+            command.Execute(file);
+        }
+    }
+
+    private static T? FindAncestor<T>(DependencyObject? source)
+        where T : DependencyObject
+    {
+        while (source != null && source is not T)
+        {
+            source = source is Visual or System.Windows.Media.Media3D.Visual3D ? VisualTreeHelper.GetParent(source) : LogicalTreeHelper.GetParent(source);
+        }
+
+        return source as T;
+    }
+
     private static bool IsOnBranchItem(DependencyObject? source)
     {
         while (source != null && source is not TreeView)

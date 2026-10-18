@@ -39,12 +39,45 @@ public sealed class GitProcessRunner : IGitCommandRunner
     }
 
     /// <inheritdoc/>
-    public async Task<GitResult> RunAsync(
+    public Task<GitResult> RunAsync(
         string workingDirectory,
         IReadOnlyList<string> arguments,
         IReadOnlyDictionary<string, string>? environment = null,
         IProgress<OperationProgress>? progress = null,
         CancellationToken ct = default)
+    {
+        return RunCoreAsync(workingDirectory, arguments, environment, progress, stdout => stdout.ReadToEndAsync(), ct);
+    }
+
+    /// <inheritdoc/>
+    public Task<GitResult> RunToFileAsync(
+        string workingDirectory,
+        IReadOnlyList<string> arguments,
+        string outputFile,
+        CancellationToken ct = default)
+    {
+        // ファイルの中身は Shift-JIS やバイナリのこともあるため、StreamReader を通さずにバイト列のまま書き込む
+        return RunCoreAsync(
+            workingDirectory,
+            arguments,
+            environment: null,
+            progress: null,
+            async stdout =>
+            {
+                using var file = new FileStream(outputFile, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
+                await stdout.BaseStream.CopyToAsync(file).ConfigureAwait(false);
+                return string.Empty;
+            },
+            ct);
+    }
+
+    private async Task<GitResult> RunCoreAsync(
+        string workingDirectory,
+        IReadOnlyList<string> arguments,
+        IReadOnlyDictionary<string, string>? environment,
+        IProgress<OperationProgress>? progress,
+        Func<StreamReader, Task<string>> readStandardOutput,
+        CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
 
@@ -87,7 +120,7 @@ public sealed class GitProcessRunner : IGitCommandRunner
         process.StandardInput.Close();
 
         // stdout と stderr は並行して読む(片方のバッファが詰まるとデッドロックするため)
-        Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
+        Task<string> stdoutTask = readStandardOutput(process.StandardOutput);
         Task<string> stderrTask = ReadStandardErrorAsync(process.StandardError, progress);
         Task outputTask = Task.WhenAll(stdoutTask, stderrTask);
 

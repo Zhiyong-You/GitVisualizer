@@ -288,7 +288,16 @@
                     <TextBlock DockPanel.Dock="Top" Text="変更ファイル" Style="{StaticResource PaneHeaderStyle}" />
                     <ListBox ItemsSource="{Binding Files}"
                              Style="{StaticResource ThemedListStyle}"
-                             ItemContainerStyle="{StaticResource ThemedListItemStyle}">
+                             ItemContainerStyle="{StaticResource ThemedListItemStyle}"
+                             MouseDoubleClick="OnCommitFileMouseDoubleClick"
+                             KeyDown="OnCommitFileKeyDown">
+                        <ListBox.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="差分を表示"
+                                          Command="{Binding OpenDiffCommand}"
+                                          CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                            </ContextMenu>
+                        </ListBox.ContextMenu>
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <DockPanel>

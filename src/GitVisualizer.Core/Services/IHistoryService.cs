@@ -22,6 +22,17 @@ public interface IHistoryService
     /// <returns>変更ファイル一覧。</returns>
     Task<IReadOnlyList<FileChange>> GetCommitChangesAsync(string repositoryPath, string commitSha, CancellationToken ct = default);
 
+    /// <summary>
+    /// コミットで変更されたファイルの変更前(第 1 親)と変更後の内容を一時ファイルに書き出します。
+    /// 追加・削除などで存在しない側は空ファイルになります。
+    /// </summary>
+    /// <param name="repositoryPath">リポジトリのルートパス。</param>
+    /// <param name="commit">対象のコミット。</param>
+    /// <param name="file">対象のファイル(<see cref="GetCommitChangesAsync"/> の結果の 1 件)。</param>
+    /// <param name="ct">キャンセルトークン。</param>
+    /// <returns>差分表示用の一時ファイルと見出し。</returns>
+    Task<FileDiff> GetCommitFileDiffAsync(string repositoryPath, CommitInfo commit, FileChange file, CancellationToken ct = default);
+
     /// <summary>現在のブランチをリベースします。</summary>
     /// <param name="repositoryPath">リポジトリのルートパス。</param>
     /// <param name="options">rebase 設定。</param>

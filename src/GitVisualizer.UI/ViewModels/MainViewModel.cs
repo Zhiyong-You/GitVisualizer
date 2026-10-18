@@ -37,6 +37,7 @@ public sealed partial class MainViewModel : ObservableObject
     /// <param name="graphBuilder">コミットグラフの計算器。</param>
     /// <param name="repositoryLocator">操作対象リポジトリのロケーター。</param>
     /// <param name="dialogService">ダイアログサービス。</param>
+    /// <param name="diffViewerService">差分表示サービス。</param>
     /// <param name="notificationService">通知サービス。</param>
     /// <param name="logger">ログ出力先。</param>
     public MainViewModel(
@@ -48,6 +49,7 @@ public sealed partial class MainViewModel : ObservableObject
         CommitGraphBuilder graphBuilder,
         IRepositoryLocator repositoryLocator,
         IDialogService dialogService,
+        IDiffViewerService diffViewerService,
         INotificationService notificationService,
         IOutputLogger logger)
     {
@@ -59,7 +61,7 @@ public sealed partial class MainViewModel : ObservableObject
         Toolbar = new ToolbarViewModel(syncService, branchService, dialogService, notificationService, _context);
         BranchTree = new BranchTreeViewModel(branchService, dialogService, _context);
         CommitHistory = new CommitHistoryViewModel(historyService, graphBuilder, dialogService, _context);
-        CommitDetail = new CommitDetailViewModel(historyService, _context);
+        CommitDetail = new CommitDetailViewModel(historyService, diffViewerService, _context);
         WorkingChanges = new WorkingChangesViewModel(commitService, notificationService, _context);
         OperationState = new OperationStateViewModel(historyService, repositoryStateService, dialogService, _context);
 

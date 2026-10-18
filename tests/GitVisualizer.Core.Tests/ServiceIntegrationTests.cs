@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using GitVisualizer.Core.Infrastructure;
@@ -258,5 +259,95 @@ public class ServiceIntegrationTests
         repo.WriteFile("a.txt", "changed");
 
         Assert.True(await changed.WaitAsync(TimeSpan.FromSeconds(10)), "Changed が発生しませんでした。");
+    }
+
+    [Fact]
+    public async Task HistoryService_コミットの変更ファイルの差分を取り出せる()
+    {
+        using var repo = await TempRepository.CreateAsync();
+        var service = CreateHistoryService(repo);
+
+        // Shift-JIS(「あ」)と NUL を含むバイト列が、文字コード変換されずにそのまま取り出せること
+        byte[] binaryBefore = { 0x82, 0xA0, 0x00, 0xFF };
+        byte[] binaryAfter = { 0x82, 0xA2, 0x00, 0xFE };
+        const string renamedContent = "line 1\nline 2\nline 3\nline 4\nline 5\n";
+
+        repo.WriteFile("a.txt", "old\n");
+        repo.WriteFile("b.txt", renamedContent);
+        repo.WriteFile("c.txt", "deleted\n");
+        File.WriteAllBytes(Path.Combine(repo.Path, "bin.dat"), binaryBefore);
+        await repo.GitAsync("add", "-A");
+        await repo.GitAsync("commit", "-q", "-m", "root");
+
+        repo.WriteFile("a.txt", "new\n");
+        await repo.GitAsync("mv", "b.txt", "b2.txt");
+        await repo.GitAsync("rm", "-q", "c.txt");
+        repo.WriteFile("dir/d.txt", "added\n");
+        File.WriteAllBytes(Path.Combine(repo.Path, "bin.dat"), binaryAfter);
+        await repo.GitAsync("add", "-A");
+        await repo.GitAsync("commit", "-q", "-m", "second");
+
+        var log = await service.GetLogAsync(repo.Path, 10);
+        CommitInfo second = log[0];
+        CommitInfo root = log[1];
+        var changes = await service.GetCommitChangesAsync(repo.Path, second.Sha);
+
+        async Task<(byte[] Left, byte[] Right, FileDiff Diff)> DiffAsync(CommitInfo commit, FileChange file)
+        {
+            FileDiff diff = await service.GetCommitFileDiffAsync(repo.Path, commit, file);
+            try
+            {
+                return (File.ReadAllBytes(diff.LeftFile), File.ReadAllBytes(diff.RightFile), diff);
+            }
+            finally
+            {
+                DeleteDiffFiles(diff);
+            }
+        }
+
+        var modified = await DiffAsync(second, changes.Single(c => c.Path == "a.txt"));
+        Assert.Equal("old\n", Encoding.UTF8.GetString(modified.Left));
+        Assert.Equal("new\n", Encoding.UTF8.GetString(modified.Right));
+        Assert.Equal($"a.txt ({root.Sha.Substring(0, 7)})", modified.Diff.LeftLabel);
+        Assert.Equal($"a.txt ({second.Sha.Substring(0, 7)})", modified.Diff.RightLabel);
+
+        FileChange renamedChange = changes.Single(c => c.Path == "b2.txt");
+        Assert.Equal(FileChangeKind.Renamed, renamedChange.Kind);
+        var renamed = await DiffAsync(second, renamedChange);
+        Assert.Equal(renamedContent, Encoding.UTF8.GetString(renamed.Left));
+        Assert.Equal(renamedContent, Encoding.UTF8.GetString(renamed.Right));
+        Assert.Equal("b.txt", Path.GetFileName(renamed.Diff.LeftFile));
+        Assert.Equal("b2.txt", Path.GetFileName(renamed.Diff.RightFile));
+
+        var deleted = await DiffAsync(second, changes.Single(c => c.Path == "c.txt"));
+        Assert.Equal("deleted\n", Encoding.UTF8.GetString(deleted.Left));
+        Assert.Empty(deleted.Right);
+
+        var added = await DiffAsync(second, changes.Single(c => c.Path == "dir/d.txt"));
+        Assert.Empty(added.Left);
+        Assert.Equal("added\n", Encoding.UTF8.GetString(added.Right));
+        Assert.Equal("d.txt", Path.GetFileName(added.Diff.RightFile));
+
+        var binary = await DiffAsync(second, changes.Single(c => c.Path == "bin.dat"));
+        Assert.Equal(binaryBefore, binary.Left);
+        Assert.Equal(binaryAfter, binary.Right);
+
+        // ルートコミットには親がないため、変更前は空になる
+        var rootChanges = await service.GetCommitChangesAsync(repo.Path, root.Sha);
+        var rootDiff = await DiffAsync(root, rootChanges.Single(c => c.Path == "a.txt"));
+        Assert.Empty(rootDiff.Left);
+        Assert.Equal("old\n", Encoding.UTF8.GetString(rootDiff.Right));
+    }
+
+    private static void DeleteDiffFiles(FileDiff diff)
+    {
+        // LeftFile は <セッション>\before\<ファイル名>
+        string session = Path.GetDirectoryName(Path.GetDirectoryName(diff.LeftFile)!)!;
+        foreach (string file in Directory.GetFiles(session, "*", SearchOption.AllDirectories))
+        {
+            File.SetAttributes(file, FileAttributes.Normal);
+        }
+
+        Directory.Delete(session, recursive: true);
     }
 }
