@@ -7,6 +7,7 @@
              xmlns:platformUI="clr-namespace:Microsoft.VisualStudio.PlatformUI;assembly=Microsoft.VisualStudio.Shell.15.0"
              xmlns:vm="clr-namespace:GitVisualizer.UI.ViewModels"
              xmlns:controls="clr-namespace:GitVisualizer.UI.Controls"
+             xmlns:data="clr-namespace:System.Windows.Data;assembly=PresentationFramework"
              mc:Ignorable="d"
              d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"
              d:DesignWidth="1000" d:DesignHeight="640"
@@ -315,6 +316,14 @@
 
         <!-- ===== 下: 変更ファイル一覧 + コミット入力 ===== -->
         <Grid Grid.Row="3" DataContext="{Binding WorkingChanges}">
+			<Grid.Resources>
+				<CollectionViewSource x:Key="GroupedWorkingChanges"
+									  Source="{Binding Changes}">
+					<CollectionViewSource.GroupDescriptions>
+						<data:PropertyGroupDescription PropertyName="Kind" />
+					</CollectionViewSource.GroupDescriptions>
+				</CollectionViewSource>
+			</Grid.Resources>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" MinWidth="200" />
                 <ColumnDefinition Width="5" />
@@ -332,10 +341,28 @@
                                     Margin="4,2,0,2" Padding="6,0" Style="{DynamicResource {x:Static vsshell:VsResourceKeys.ButtonStyleKey}}" />
                         </StackPanel>
                     </DockPanel>
-                    <ListView ItemsSource="{Binding Changes}"
+					<ListView ItemsSource="{Binding Source={StaticResource GroupedWorkingChanges}}"
                               SelectedItem="{Binding SelectedChange}"
                               Style="{StaticResource ThemedListStyle}"
                               ItemContainerStyle="{StaticResource ThemedListItemStyle}">
+
+						<ListView.GroupStyle>
+							<GroupStyle>
+								<GroupStyle.HeaderTemplate>
+									<DataTemplate>
+										<TextBlock Margin="4,6,4,2"
+												   FontWeight="SemiBold"
+												   Foreground="{DynamicResource {x:Static platformUI:EnvironmentColors.ToolWindowTextBrushKey}}">
+											<Run Text="{Binding Name, Mode=OneWay}" />
+											<Run Text=" (" />
+											<Run Text="{Binding ItemCount, Mode=OneWay}" />
+											<Run Text=")" />
+										</TextBlock>
+									</DataTemplate>
+								</GroupStyle.HeaderTemplate>
+							</GroupStyle>
+						</ListView.GroupStyle>
+						
                         <ListView.ItemTemplate>
                             <DataTemplate>
                                 <DockPanel>
@@ -344,7 +371,6 @@
                                               Command="{Binding DataContext.ToggleStageCommand, RelativeSource={RelativeSource AncestorType=ListView}}"
                                               CommandParameter="{Binding}"
                                               Style="{DynamicResource {x:Static vsshell:VsResourceKeys.CheckBoxStyleKey}}" />
-                                    <TextBlock DockPanel.Dock="Left" Width="80" Text="{Binding Kind}" Opacity="0.75" />
                                     <TextBlock Text="{Binding Path}" ToolTip="{Binding OldPath}" TextTrimming="CharacterEllipsis" />
                                 </DockPanel>
                             </DataTemplate>
