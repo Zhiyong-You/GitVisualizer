@@ -39,19 +39,44 @@ public sealed class HistoryService : IHistoryService
     }
 
     /// <inheritdoc/>
-    public async Task<IReadOnlyList<CommitInfo>> GetLogAsync(string repositoryPath, int maxCount, CancellationToken ct = default)
+    public async Task<IReadOnlyList<CommitInfo>> GetLogAsync(string repositoryPath, int maxCount, IReadOnlyList<string>? revisions = null, CancellationToken ct = default)
     {
-        // --all だと refs/stash まで表示されるため、ブランチ・リモート・タグ・HEAD を明示する
         var arguments = new List<string>
         {
-            "log", "--branches", "--remotes", "--tags", "--topo-order",
-            "-n", maxCount.ToString(CultureInfo.InvariantCulture), "-z", LogFormat,
+            "log", "--topo-order", "-n", maxCount.ToString(CultureInfo.InvariantCulture), "-z", LogFormat,
         };
 
-        // コミットが 1 つもないリポジトリでは HEAD を指定するとエラーになる
-        if (await RevParseAsync(repositoryPath, "HEAD", ct).ConfigureAwait(false) != null)
+        if (revisions != null)
         {
-            arguments.Add("HEAD");
+            // 削除されたブランチや、コミットがないリポジトリの HEAD はエラーになるため、存在しない起点は除く
+            var existing = new List<string>();
+            foreach (string revision in revisions)
+            {
+                if (await RevParseAsync(repositoryPath, revision + "^{commit}", ct).ConfigureAwait(false) != null)
+                {
+                    existing.Add(revision);
+                }
+            }
+
+            if (existing.Count == 0)
+            {
+                return Array.Empty<CommitInfo>();
+            }
+
+            // "--" でファイル名ではなく参照名として解釈させる
+            arguments.AddRange(existing);
+            arguments.Add("--");
+        }
+        else
+        {
+            // --all だと refs/stash まで表示されるため、ブランチ・リモート・タグ・HEAD を明示する
+            arguments.InsertRange(1, new[] { "--branches", "--remotes", "--tags" });
+
+            // コミットが 1 つもないリポジトリでは HEAD を指定するとエラーになる
+            if (await RevParseAsync(repositoryPath, "HEAD", ct).ConfigureAwait(false) != null)
+            {
+                arguments.Add("HEAD");
+            }
         }
 
         GitResult result = await _runner.RunAsync(repositoryPath, arguments, ct: ct).ConfigureAwait(false);

@@ -23,6 +23,8 @@ public sealed partial class CommitHistoryViewModel : ObservableObject
 
     private const double LaneWidth = CommitGraphMetrics.LaneWidth;
 
+    private const string HeadRevision = "HEAD";
+
     private readonly IHistoryService _historyService;
     private readonly CommitGraphBuilder _graphBuilder;
     private readonly IDialogService _dialogService;
@@ -37,6 +39,24 @@ public sealed partial class CommitHistoryViewModel : ObservableObject
 
     [ObservableProperty]
     private double _graphColumnWidth = LaneWidth * 2;
+
+    /// <summary>選択したコミットの線(ブランチの先端から第 1 親を辿った経路)。未選択なら <see langword="null"/>。</summary>
+    [ObservableProperty]
+    private GraphHighlight? _graphHighlight;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsFiltered), nameof(IsBranchFiltered))]
+    private HistoryScope _scope = HistoryScope.All;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsBranchFiltered))]
+    private BranchInfo? _viewBranch;
+
+    // 表示範囲の変更で再読み込みしない(MainViewModel の再読み込み中に呼ばれる場合)
+    private bool _suppressReload;
+
+    // 読み込みのたびに増やし、後から始まった読み込みがあれば古い結果を捨てる
+    private int _loadVersion;
 
     /// <summary><see cref="CommitHistoryViewModel"/> を初期化します。</summary>
     /// <param name="historyService">履歴サービス。</param>
@@ -63,20 +83,128 @@ public sealed partial class CommitHistoryViewModel : ObservableObject
     /// <summary>HEAD のコミット。読み込み前やコミットがない場合は <see langword="null"/>。</summary>
     public CommitInfo? HeadCommit { get; private set; }
 
+    /// <summary>表示範囲の選択肢。</summary>
+    public IReadOnlyList<HistoryScopeOption> ScopeOptions { get; } = new[]
+    {
+        new HistoryScopeOption(HistoryScope.All, "すべて"),
+        new HistoryScopeOption(HistoryScope.CurrentBranch, "現在のブランチ"),
+        new HistoryScopeOption(HistoryScope.SelectedBranch, "選択ブランチ"),
+        new HistoryScopeOption(HistoryScope.CurrentAndSelected, "現在 + 選択"),
+    };
+
+    /// <summary>全ブランチ以外に絞り込んで表示しているかどうか。</summary>
+    public bool IsFiltered => Scope != HistoryScope.All;
+
+    /// <summary>選択ブランチの履歴を(現在のブランチと合わせて、を含む)表示しているかどうか。</summary>
+    public bool IsBranchFiltered => ShowsSelectedBranch && ViewBranch != null;
+
+    private bool ShowsSelectedBranch => Scope is HistoryScope.SelectedBranch or HistoryScope.CurrentAndSelected;
+
     /// <summary>表示を空にします。</summary>
     public void Clear()
     {
+        _loadVersion++;
         Commits.Clear();
         HeadCommit = null;
         SelectedRow = null;
     }
 
-    partial void OnSelectedRowChanged(CommitRowViewModel? value)
+    /// <summary>
+    /// ブランチツリーで選択したブランチの履歴を表示します(チェックアウトはしない)。
+    /// 「現在 + 選択」を表示中ならその表示範囲のまま、選択ブランチだけを切り替えます。
+    /// </summary>
+    /// <param name="branch">選択したブランチ。グループ見出しを選んだ場合は <see langword="null"/> で、表示は変えない。</param>
+    public void ShowBranch(BranchInfo? branch)
     {
-        SelectedCommit = value?.Commit;
+        if (branch == null || (ShowsSelectedBranch && branch.FullName == ViewBranch?.FullName))
+        {
+            return;
+        }
+
+        ViewBranch = branch;
+        if (ShowsSelectedBranch)
+        {
+            Reload();
+        }
+        else
+        {
+            Scope = HistoryScope.SelectedBranch;
+        }
+    }
+
+    /// <summary>
+    /// 再読み込み後のブランチ一覧に合わせて、表示中のブランチを最新の情報に置き換えます。
+    /// ブランチが削除されていたら、選択ブランチの表示は全ブランチに、「現在 + 選択」は現在のブランチに戻します。
+    /// 履歴の再読み込みは呼び出し側で行います。
+    /// </summary>
+    /// <param name="branches">最新のブランチ一覧。</param>
+    public void UpdateViewBranch(IEnumerable<BranchInfo> branches)
+    {
+        if (ViewBranch is not BranchInfo current)
+        {
+            return;
+        }
+
+        _suppressReload = true;
+        try
+        {
+            ViewBranch = branches.FirstOrDefault(b => b.FullName == current.FullName);
+            if (ViewBranch == null)
+            {
+                Scope = Scope switch
+                {
+                    HistoryScope.SelectedBranch => HistoryScope.All,
+                    HistoryScope.CurrentAndSelected => HistoryScope.CurrentBranch,
+                    _ => Scope,
+                };
+            }
+        }
+        finally
+        {
+            _suppressReload = false;
+        }
+    }
+
+    partial void OnScopeChanged(HistoryScope value)
+    {
+        Reload();
+    }
+
+    private void Reload()
+    {
+        if (!_suppressReload)
+        {
+            _ = RefreshCommand.ExecuteAsync(null);
+        }
     }
 
     [RelayCommand]
+    private void ShowAll()
+    {
+        Scope = HistoryScope.All;
+    }
+
+    partial void OnSelectedRowChanged(CommitRowViewModel? value)
+    {
+        SelectedCommit = value?.Commit;
+        GraphHighlight = TraceHighlight(value);
+    }
+
+    private GraphHighlight? TraceHighlight(CommitRowViewModel? row)
+    {
+        int index = row == null ? -1 : Commits.IndexOf(row);
+        if (index < 0 || row!.Node == null)
+        {
+            return null;
+        }
+
+        return GraphHighlight.Trace(
+            Commits.Select(r => r.Commit).ToList(),
+            Commits.Select(r => r.Node!).ToList(),
+            index);
+    }
+
+    [RelayCommand(AllowConcurrentExecutions = true)]
     private async Task RefreshAsync(CancellationToken ct)
     {
         string? path = _context.RepositoryPath;
@@ -86,9 +214,24 @@ public sealed partial class CommitHistoryViewModel : ObservableObject
             return;
         }
 
+        int version = ++_loadVersion;
         try
         {
-            IReadOnlyList<CommitInfo> commits = await _historyService.GetLogAsync(path, MaxCount, ct);
+            IReadOnlyList<string>? revisions = GetRevisions();
+            IReadOnlyList<CommitInfo> commits = await _historyService.GetLogAsync(path, MaxCount, revisions, ct);
+
+            // HEAD は作業中の変更(Amend)でも使うため、表示中の履歴に含まれなければ別に取得する
+            CommitInfo? head = FindHead(commits);
+            if (head == null && revisions != null && !revisions.Contains(HeadRevision))
+            {
+                head = FindHead(await _historyService.GetLogAsync(path, 1, new[] { HeadRevision }, ct));
+            }
+
+            if (version != _loadVersion)
+            {
+                return;
+            }
+
             IReadOnlyList<GraphNode> nodes = _graphBuilder.Build(commits);
 
             string? selectedSha = SelectedCommit?.Sha;
@@ -98,7 +241,7 @@ public sealed partial class CommitHistoryViewModel : ObservableObject
                 Commits.Add(new CommitRowViewModel(commits[i], nodes[i]));
             }
 
-            HeadCommit = commits.FirstOrDefault(c => c.Refs.Any(r => r == "HEAD" || r.StartsWith("HEAD -> ", StringComparison.Ordinal)));
+            HeadCommit = head;
 
             int maxLane = nodes.Count == 0 ? 0 : nodes.Max(n => Math.Max(n.Lane, n.Edges.Count == 0 ? 0 : n.Edges.Max(e => Math.Max(e.FromLane, e.ToLane))));
             GraphColumnWidth = Math.Min(LaneWidth * (maxLane + 1) + 4, 240);
@@ -114,6 +257,22 @@ public sealed partial class CommitHistoryViewModel : ObservableObject
             _context.ReportLoadError("コミット履歴の取得", ex);
         }
     }
+
+    /// <summary>表示範囲に応じた git log の起点。<see langword="null"/> は全ブランチ。</summary>
+    private IReadOnlyList<string>? GetRevisions()
+    {
+        string? selected = ViewBranch?.FullName;
+        return Scope switch
+        {
+            HistoryScope.CurrentBranch => new[] { HeadRevision },
+            HistoryScope.SelectedBranch when selected != null => new[] { selected },
+            HistoryScope.CurrentAndSelected => selected == null ? new[] { HeadRevision } : new[] { HeadRevision, selected },
+            _ => null,
+        };
+    }
+
+    private static CommitInfo? FindHead(IReadOnlyList<CommitInfo> commits) =>
+        commits.FirstOrDefault(c => c.Refs.Any(r => r == "HEAD" || r.StartsWith("HEAD -> ", StringComparison.Ordinal)));
 
     private bool HasSelection() => SelectedCommit != null;
 

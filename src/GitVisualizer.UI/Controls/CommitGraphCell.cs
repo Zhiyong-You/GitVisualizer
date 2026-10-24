@@ -27,6 +27,16 @@ public sealed class CommitGraphCell : FrameworkElement
         typeof(CommitGraphCell),
         new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
 
+    /// <summary><see cref="Highlight"/> 依存関係プロパティ。</summary>
+    public static readonly DependencyProperty HighlightProperty = DependencyProperty.Register(
+        nameof(Highlight),
+        typeof(GraphHighlight),
+        typeof(CommitGraphCell),
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    // 強調表示中に、経路以外の線と点を薄く描く不透明度
+    private const double DimmedOpacity = 0.25;
+
     // レーンの色。VS テーマのリソースには系列色がないため、ダーク/ライトどちらの背景でも判別しやすい中間の明度の色を使う
     private static readonly Brush[] Palette = CreatePalette(
         Color.FromRgb(0x3E, 0x9B, 0xE0),
@@ -38,7 +48,11 @@ public sealed class CommitGraphCell : FrameworkElement
         Color.FromRgb(0xB8, 0x9B, 0x2A),
         Color.FromRgb(0x7E, 0x7E, 0xE6));
 
-    private static readonly Pen[] Pens = CreatePens();
+    private static readonly Brush[] DimmedPalette = CreateDimmedPalette();
+
+    private static readonly Pen[] Pens = CreatePens(Palette);
+
+    private static readonly Pen[] DimmedPens = CreatePens(DimmedPalette);
 
     /// <summary><see cref="CommitGraphCell"/> を初期化します。</summary>
     public CommitGraphCell()
@@ -52,6 +66,13 @@ public sealed class CommitGraphCell : FrameworkElement
     {
         get => (GraphNode?)GetValue(NodeProperty);
         set => SetValue(NodeProperty, value);
+    }
+
+    /// <summary>強調表示する線と点。<see langword="null"/> なら全て通常の色で描く。</summary>
+    public GraphHighlight? Highlight
+    {
+        get => (GraphHighlight?)GetValue(HighlightProperty);
+        set => SetValue(HighlightProperty, value);
     }
 
     /// <inheritdoc/>
@@ -68,11 +89,13 @@ public sealed class CommitGraphCell : FrameworkElement
         double height = ActualHeight;
         double middle = height / 2;
         var dot = new Point(X(node.Lane), middle);
+        GraphHighlight? highlight = Highlight;
 
         // 線: 素通りは上端→下端、子からの線は上端→点、親への線は点→下端
         foreach (GraphEdge edge in node.Edges)
         {
-            Pen pen = Pens[edge.ColorIndex % Pens.Length];
+            Pen[] pens = highlight == null || highlight.Contains(edge) ? Pens : DimmedPens;
+            Pen pen = pens[edge.ColorIndex % pens.Length];
             switch (edge.Kind)
             {
                 case GraphEdgeKind.Incoming:
@@ -88,7 +111,8 @@ public sealed class CommitGraphCell : FrameworkElement
         }
 
         // コミットの点
-        drawingContext.DrawEllipse(Palette[node.ColorIndex % Palette.Length], null, dot, CommitGraphMetrics.DotRadius, CommitGraphMetrics.DotRadius);
+        Brush[] palette = highlight == null || highlight.Contains(node) ? Palette : DimmedPalette;
+        drawingContext.DrawEllipse(palette[node.ColorIndex % palette.Length], null, dot, CommitGraphMetrics.DotRadius, CommitGraphMetrics.DotRadius);
     }
 
     private static double X(int lane) => (CommitGraphMetrics.LaneWidth * lane) + (CommitGraphMetrics.LaneWidth / 2) + 2;
@@ -127,12 +151,26 @@ public sealed class CommitGraphCell : FrameworkElement
         return brushes;
     }
 
-    private static Pen[] CreatePens()
+    private static Brush[] CreateDimmedPalette()
     {
-        var pens = new Pen[Palette.Length];
+        var brushes = new Brush[Palette.Length];
         for (int i = 0; i < Palette.Length; i++)
         {
-            var pen = new Pen(Palette[i], CommitGraphMetrics.LineThickness) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
+            Brush brush = Palette[i].CloneCurrentValue();
+            brush.Opacity = DimmedOpacity;
+            brush.Freeze();
+            brushes[i] = brush;
+        }
+
+        return brushes;
+    }
+
+    private static Pen[] CreatePens(Brush[] palette)
+    {
+        var pens = new Pen[palette.Length];
+        for (int i = 0; i < palette.Length; i++)
+        {
+            var pen = new Pen(palette[i], CommitGraphMetrics.LineThickness) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
             pen.Freeze();
             pens[i] = pen;
         }

@@ -122,6 +122,32 @@ public class ServiceIntegrationTests
     }
 
     [Fact]
+    public async Task HistoryService_チェックアウトせずにブランチの履歴を取得する()
+    {
+        using var repo = await TempRepository.CreateAsync();
+        var history = CreateHistoryService(repo);
+        await repo.CommitFileAsync("a.txt", "a", "base");
+        await repo.GitAsync("checkout", "-q", "-b", "feature");
+        await repo.CommitFileAsync("f.txt", "f", "on feature");
+        await repo.GitAsync("checkout", "-q", "main");
+        await repo.CommitFileAsync("m.txt", "m", "on main");
+
+        var feature = await history.GetLogAsync(repo.Path, 100, new[] { "refs/heads/feature" });
+        Assert.Equal(new[] { "on feature", "base" }, feature.Select(c => c.Subject));
+
+        var head = await history.GetLogAsync(repo.Path, 100, new[] { "HEAD" });
+        Assert.Equal(new[] { "on main", "base" }, head.Select(c => c.Subject));
+
+        // 現在のブランチと選択ブランチを合わせて表示する。存在しない起点は無視する
+        var both = await history.GetLogAsync(repo.Path, 100, new[] { "HEAD", "refs/heads/feature", "refs/heads/deleted" });
+        Assert.Equal(new[] { "base", "on feature", "on main" }, both.Select(c => c.Subject).OrderBy(s => s, StringComparer.Ordinal));
+        Assert.Equal("base", both[both.Count - 1].Subject);
+
+        Assert.Equal(3, (await history.GetLogAsync(repo.Path, 100)).Count);
+        Assert.Empty(await history.GetLogAsync(repo.Path, 100, new[] { "refs/heads/deleted" }));
+    }
+
+    [Fact]
     public async Task HistoryService_HEADのコミットメッセージを変更する()
     {
         using var repo = await TempRepository.CreateAsync();

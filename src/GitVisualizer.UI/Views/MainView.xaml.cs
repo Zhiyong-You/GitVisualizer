@@ -39,6 +39,10 @@ public partial class MainView : UserControl
         {
             // グループ見出し(ローカル / リモート)を選んだ場合は null になる
             ViewModel.BranchTree.SelectedBranch = e.NewValue as BranchInfo;
+
+            // クリックしたブランチの履歴を、チェックアウトせずに表示する。
+            // 再読み込みでブランチ一覧が作り直されたときは null で通知されるため、表示範囲は変わらない
+            ViewModel.CommitHistory.ShowBranch(e.NewValue as BranchInfo);
         }
     }
 

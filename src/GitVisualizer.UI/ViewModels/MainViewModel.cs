@@ -174,6 +174,7 @@ public sealed partial class MainViewModel : ObservableObject
             OperationState.CurrentBranchName = current?.Name ?? "(detached HEAD)";
             CommitHistory.CurrentBranchName = OperationState.CurrentBranchName;
             CommitHistory.BranchNames = BranchTree.LocalBranches.Concat(BranchTree.RemoteBranches).Select(b => b.Name).ToList();
+            CommitHistory.UpdateViewBranch(BranchTree.LocalBranches.Concat(BranchTree.RemoteBranches));
 
             await CommitHistory.RefreshCommand.ExecuteAsync(null);
             CommitInfo? head = CommitHistory.HeadCommit;

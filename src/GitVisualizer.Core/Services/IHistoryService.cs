@@ -11,9 +11,13 @@ public interface IHistoryService
     /// <summary>コミット履歴を取得します。</summary>
     /// <param name="repositoryPath">リポジトリのルートパス。</param>
     /// <param name="maxCount">最大取得件数。</param>
+    /// <param name="revisions">
+    /// 履歴をたどる起点(例: <c>HEAD</c>, <c>refs/remotes/origin/main</c>)。チェックアウトせずにそのブランチの履歴を取得できる。
+    /// 複数指定するといずれかから辿れるコミットをまとめて返す。<see langword="null"/> なら全ブランチ・リモート・タグ・HEAD。
+    /// </param>
     /// <param name="ct">キャンセルトークン。</param>
-    /// <returns>コミット一覧(トポロジカル順、新しい順)。</returns>
-    Task<IReadOnlyList<CommitInfo>> GetLogAsync(string repositoryPath, int maxCount, CancellationToken ct = default);
+    /// <returns>コミット一覧(トポロジカル順、新しい順)。存在しない起点は無視し、1 つも存在しなければ空。</returns>
+    Task<IReadOnlyList<CommitInfo>> GetLogAsync(string repositoryPath, int maxCount, IReadOnlyList<string>? revisions = null, CancellationToken ct = default);
 
     /// <summary>コミットで変更されたファイルを取得します(マージコミットは第 1 親との差分)。</summary>
     /// <param name="repositoryPath">リポジトリのルートパス。</param>
