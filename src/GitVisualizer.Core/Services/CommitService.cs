@@ -10,6 +10,12 @@ namespace GitVisualizer.Core.Services;
 /// <summary><see cref="ICommitService"/> の git.exe 実装。</summary>
 public sealed class CommitService : ICommitService
 {
+    // 利用者の設定(色付け・外部 diff ツール・textconv・接頭辞・名前変更の検出)に左右されない、git apply で戻せる形の diff にする
+    private static readonly string[] DiffOptions =
+    {
+        "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "--src-prefix=a/", "--dst-prefix=b/", "-U3",
+    };
+
     private readonly IGitCommandRunner _runner;
     private readonly GitOutputParser _parser;
 
@@ -68,6 +74,162 @@ public sealed class CommitService : ICommitService
             : new List<string> { "rm", "--cached", "--quiet", "-r", "--" };
         arguments.AddRange(paths);
         return await _runner.RunAsync(repositoryPath, arguments, ct: ct).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task<FilePatch> GetFilePatchAsync(string repositoryPath, FileChange change, CancellationToken ct = default)
+    {
+        // 未追跡ファイルは git diff に出ないため、空のファイルと比べる(--no-index は差分があると終了コード 1)
+        bool isUntracked = change.Kind == FileChangeKind.Untracked;
+        var arguments = new List<string>(DiffOptions);
+        if (isUntracked)
+        {
+            arguments.AddRange(new[] { "--no-index", "--", "/dev/null", change.Path });
+        }
+        else
+        {
+            if (change.IsStaged)
+            {
+                arguments.Add("--cached");
+            }
+
+            arguments.Add("--");
+            arguments.Add(change.Path);
+        }
+
+        // 出力は Shift-JIS などのこともあるため、バイト列のまま受け取る
+        using var output = new TempPatchFile();
+        GitResult result = await _runner.RunToFileAsync(repositoryPath, arguments, output.Path, ct).ConfigureAwait(false);
+        if (!result.IsSuccess && !(isUntracked && result.ExitCode == 1))
+        {
+            throw new InvalidOperationException(result.StandardError);
+        }
+
+        return UnifiedDiffParser.Parse(output.ReadAllBytes(), change);
+    }
+
+    /// <inheritdoc/>
+    public async Task<GitResult> StageLinesAsync(string repositoryPath, FilePatch patch, IReadOnlyCollection<DiffLine> lines, CancellationToken ct = default)
+    {
+        if (patch.Change.IsStaged)
+        {
+            return GitResults.Failure("ステージ済みの差分はステージできません。");
+        }
+
+        if (patch.Change.Kind != FileChangeKind.Untracked)
+        {
+            return await ApplyLinesAsync(repositoryPath, patch, lines, reverse: false, ct).ConfigureAwait(false);
+        }
+
+        // 未追跡ファイルは、空の内容でインデックスに登録(intent-to-add)してから、git diff の結果に選択を移して適用する
+        GitResult intent = await _runner.RunAsync(repositoryPath, new[] { "add", "--intent-to-add", "--", patch.Change.Path }, ct: ct).ConfigureAwait(false);
+        if (!intent.IsSuccess)
+        {
+            return intent;
+        }
+
+        GitResult result;
+        try
+        {
+            FilePatch tracked = await GetFilePatchAsync(repositoryPath, new FileChange(patch.Change.Path, FileChangeKind.Added, isStaged: false), ct).ConfigureAwait(false);
+            IReadOnlyCollection<DiffLine>? mapped = MapSelection(patch, tracked, lines);
+            result = mapped == null
+                ? GitResults.Failure("ファイルの内容が変わったため、選択した行をステージできませんでした。再読み込みしてからやり直してください。")
+                : await ApplyLinesAsync(repositoryPath, tracked, mapped, reverse: false, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            result = GitResults.Failure(ex.Message);
+        }
+
+        if (!result.IsSuccess)
+        {
+            // 失敗したら intent-to-add を取り消して、未追跡の状態に戻す
+            await _runner.RunAsync(repositoryPath, new[] { "rm", "--cached", "--quiet", "--", patch.Change.Path }, ct: CancellationToken.None).ConfigureAwait(false);
+        }
+
+        return result;
+    }
+
+    /// <inheritdoc/>
+    public Task<GitResult> UnstageLinesAsync(string repositoryPath, FilePatch patch, IReadOnlyCollection<DiffLine> lines, CancellationToken ct = default)
+    {
+        if (!patch.Change.IsStaged)
+        {
+            return Task.FromResult(GitResults.Failure("未ステージの差分はステージ解除できません。"));
+        }
+
+        return ApplyLinesAsync(repositoryPath, patch, lines, reverse: true, ct);
+    }
+
+    private async Task<GitResult> ApplyLinesAsync(string repositoryPath, FilePatch patch, IReadOnlyCollection<DiffLine> lines, bool reverse, CancellationToken ct)
+    {
+        if (!patch.CanApplyLines)
+        {
+            return GitResults.Failure("このファイルは行単位で操作できません(バイナリ・競合中など)。ファイル単位で操作してください。");
+        }
+
+        byte[]? content;
+        try
+        {
+            content = LinePatchBuilder.Build(patch, lines, reverse);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return GitResults.Failure(ex.Message);
+        }
+
+        if (content == null)
+        {
+            return GitResults.Failure("追加行・削除行が選択されていません。");
+        }
+
+        // git の標準入力は閉じているため、パッチは一時ファイルで渡す。行数は --recount で数え直させる
+        using var patchFile = new TempPatchFile(content);
+        var arguments = new List<string> { "apply", "--cached", "--recount", "--whitespace=nowarn" };
+        if (reverse)
+        {
+            arguments.Add("--reverse");
+        }
+
+        arguments.Add(patchFile.Path);
+        return await _runner.RunAsync(repositoryPath, arguments, ct: ct).ConfigureAwait(false);
+    }
+
+    /// <summary>同じ形の diff の間で、選択した行を位置(ハンク番号・行番号)で対応付けます。形が違えば <see langword="null"/>。</summary>
+    private static IReadOnlyCollection<DiffLine>? MapSelection(FilePatch from, FilePatch to, IReadOnlyCollection<DiffLine> lines)
+    {
+        if (from.Hunks.Count != to.Hunks.Count)
+        {
+            return null;
+        }
+
+        var selected = new HashSet<DiffLine>(lines);
+        var mapped = new List<DiffLine>();
+        for (int h = 0; h < from.Hunks.Count; h++)
+        {
+            IReadOnlyList<DiffLine> source = from.Hunks[h].Lines;
+            IReadOnlyList<DiffLine> target = to.Hunks[h].Lines;
+            if (source.Count != target.Count)
+            {
+                return null;
+            }
+
+            for (int i = 0; i < source.Count; i++)
+            {
+                if (source[i].Kind != target[i].Kind)
+                {
+                    return null;
+                }
+
+                if (selected.Contains(source[i]))
+                {
+                    mapped.Add(target[i]);
+                }
+            }
+        }
+
+        return mapped;
     }
 
     /// <inheritdoc/>

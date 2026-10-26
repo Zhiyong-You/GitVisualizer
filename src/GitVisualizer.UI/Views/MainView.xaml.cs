@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -77,6 +78,15 @@ public partial class MainView : UserControl
         {
             e.Handled = true;
             OpenCommitFileDiff(file);
+        }
+    }
+
+    private void OnDiffSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        // ListBox.SelectedItems はバインドできないため、選択が変わるたびに ViewModel へ渡す
+        if (ViewModel != null && sender is ListBox list)
+        {
+            ViewModel.WorkingChanges.SelectedDiffRows = list.SelectedItems.OfType<DiffRowViewModel>().ToList();
         }
     }
 

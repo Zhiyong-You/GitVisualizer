@@ -28,6 +28,29 @@ public interface ICommitService
     /// <returns>git の実行結果。</returns>
     Task<GitResult> UnstageAsync(string repositoryPath, IReadOnlyList<string> paths, CancellationToken ct = default);
 
+    /// <summary>変更ファイルの diff を取得します(ステージ済みならインデックスと HEAD、未ステージなら作業ツリーとインデックスの差分)。</summary>
+    /// <param name="repositoryPath">リポジトリのルートパス。</param>
+    /// <param name="change">対象の変更ファイル。</param>
+    /// <param name="ct">キャンセルトークン。</param>
+    /// <returns>1 ファイル分の diff。</returns>
+    Task<FilePatch> GetFilePatchAsync(string repositoryPath, FileChange change, CancellationToken ct = default);
+
+    /// <summary>未ステージの diff のうち、選択した行だけをインデックスに追加します。</summary>
+    /// <param name="repositoryPath">リポジトリのルートパス。</param>
+    /// <param name="patch"><see cref="GetFilePatchAsync"/> で取得した未ステージの diff。</param>
+    /// <param name="lines">ステージする追加行・削除行。</param>
+    /// <param name="ct">キャンセルトークン。</param>
+    /// <returns>git の実行結果。</returns>
+    Task<GitResult> StageLinesAsync(string repositoryPath, FilePatch patch, IReadOnlyCollection<DiffLine> lines, CancellationToken ct = default);
+
+    /// <summary>ステージ済みの diff のうち、選択した行だけをインデックスから外します。</summary>
+    /// <param name="repositoryPath">リポジトリのルートパス。</param>
+    /// <param name="patch"><see cref="GetFilePatchAsync"/> で取得したステージ済みの diff。</param>
+    /// <param name="lines">ステージを解除する追加行・削除行。</param>
+    /// <param name="ct">キャンセルトークン。</param>
+    /// <returns>git の実行結果。</returns>
+    Task<GitResult> UnstageLinesAsync(string repositoryPath, FilePatch patch, IReadOnlyCollection<DiffLine> lines, CancellationToken ct = default);
+
     /// <summary>ステージ済みの変更をコミットします。</summary>
     /// <param name="repositoryPath">リポジトリのルートパス。</param>
     /// <param name="message">コミットメッセージ。</param>

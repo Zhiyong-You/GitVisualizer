@@ -101,7 +101,7 @@
             <RowDefinition Height="Auto" />               <!-- ツールバー -->
             <RowDefinition Height="*" MinHeight="120" />  <!-- ブランチ / 履歴 / 詳細 -->
             <RowDefinition Height="5" />                  <!-- スプリッター -->
-            <RowDefinition Height="220" MinHeight="120" /><!-- 変更ファイル / コミット入力 -->
+            <RowDefinition Height="260" MinHeight="120" /><!-- 変更ファイル / 差分 / コミット入力 -->
             <RowDefinition Height="Auto" />               <!-- ステータスバー -->
         </Grid.RowDefinitions>
 
@@ -344,6 +344,8 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" MinWidth="200" />
                 <ColumnDefinition Width="5" />
+                <ColumnDefinition Width="2*" MinWidth="200" />
+                <ColumnDefinition Width="5" />
                 <ColumnDefinition Width="*" MinWidth="200" />
             </Grid.ColumnDefinitions>
 
@@ -398,7 +400,80 @@
 
             <GridSplitter Grid.Column="1" Style="{StaticResource SplitterStyle}" />
 
+            <!-- 選択した変更ファイルの差分。行(ハンクヘッダーを選ぶとハンク全体)を選んでステージ / ステージ解除する -->
             <Border Grid.Column="2" Style="{StaticResource PaneBorderStyle}">
+                <DockPanel>
+                    <DockPanel DockPanel.Dock="Top" LastChildFill="True">
+                        <Button DockPanel.Dock="Right" Content="{Binding ApplyLinesLabel}" Command="{Binding ApplySelectedLinesCommand}"
+                                ToolTip="選択した行をステージ / ステージ解除します(Shift / Ctrl で複数選択、@@ の行を選ぶとハンク全体)"
+                                Margin="4,2,4,2" Padding="6,0" Style="{DynamicResource {x:Static vsshell:VsResourceKeys.ButtonStyleKey}}" />
+                        <TextBlock Style="{StaticResource PaneHeaderStyle}" TextTrimming="CharacterEllipsis">
+                            <Run Text="差分" /><Run Text="{Binding CurrentPatch.Change.Path, Mode=OneWay, StringFormat=' : {0}'}" />
+                        </TextBlock>
+                    </DockPanel>
+                    <Grid>
+                        <ListBox x:Name="DiffList"
+                                 ItemsSource="{Binding DiffRows}"
+                                 SelectionMode="Extended"
+                                 SelectionChanged="OnDiffSelectionChanged"
+                                 Style="{StaticResource ThemedListStyle}"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                 VirtualizingPanel.IsVirtualizing="True"
+                                 VirtualizingPanel.VirtualizationMode="Recycling"
+                                 FontFamily="Consolas">
+                            <ListBox.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="{Binding ApplyLinesLabel}" Command="{Binding ApplySelectedLinesCommand}" />
+                                </ContextMenu>
+                            </ListBox.ContextMenu>
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem" BasedOn="{StaticResource ThemedListItemStyle}">
+                                    <Setter Property="Padding" Value="0" />
+                                </Style>
+                            </ListBox.ItemContainerStyle>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:DiffRowViewModel}">
+                                    <!--
+                                      追加・削除行の背景は半透明の色を重ねる(ダーク/ライトのどちらの背景でも読めて、選択色も透けて見える)。
+                                      VS テーマに差分用のリソースキーがないため、ここだけ例外として固定色を使う。
+                                    -->
+                                    <Border x:Name="RowBackground" Background="Transparent" Padding="2,0">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="40" />
+                                                <ColumnDefinition Width="40" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="{Binding OldNumber}" Opacity="0.6" TextAlignment="Right" Margin="0,0,6,0" />
+                                            <TextBlock Grid.Column="1" Text="{Binding NewNumber}" Opacity="0.6" TextAlignment="Right" Margin="0,0,6,0" />
+                                            <TextBlock x:Name="RowText" Grid.Column="2" Text="{Binding Text}" />
+                                        </Grid>
+                                    </Border>
+                                    <DataTemplate.Triggers>
+                                        <DataTrigger Binding="{Binding Kind}" Value="Added">
+                                            <Setter TargetName="RowBackground" Property="Background" Value="#3328A745" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Kind}" Value="Removed">
+                                            <Setter TargetName="RowBackground" Property="Background" Value="#33D73A49" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Kind}" Value="HunkHeader">
+                                            <Setter TargetName="RowBackground" Property="Background" Value="#22808080" />
+                                            <Setter TargetName="RowText" Property="Opacity" Value="0.7" />
+                                        </DataTrigger>
+                                    </DataTemplate.Triggers>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <TextBlock Text="{Binding DiffMessage}" Margin="8" TextWrapping="Wrap" Opacity="0.7"
+                                   Foreground="{DynamicResource {x:Static platformUI:TreeViewColors.BackgroundTextBrushKey}}"
+                                   Visibility="{Binding HasDiffMessage, Converter={StaticResource BoolToVisibility}}" />
+                    </Grid>
+                </DockPanel>
+            </Border>
+
+            <GridSplitter Grid.Column="3" Style="{StaticResource SplitterStyle}" />
+
+            <Border Grid.Column="4" Style="{StaticResource PaneBorderStyle}">
                 <DockPanel Margin="0,0,0,6">
                     <TextBlock DockPanel.Dock="Top" Text="コミットメッセージ" Style="{StaticResource PaneHeaderStyle}" />
                     <DockPanel DockPanel.Dock="Bottom" Margin="6,6,6,0" LastChildFill="False">

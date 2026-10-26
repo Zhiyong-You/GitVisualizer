@@ -29,6 +29,26 @@ public sealed partial class WorkingChangesViewModel : ObservableObject
     [ObservableProperty]
     private bool _isAmend;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ApplyLinesLabel))]
+    [NotifyCanExecuteChangedFor(nameof(ApplySelectedLinesCommand))]
+    private FilePatch? _currentPatch;
+
+    [ObservableProperty]
+    private IReadOnlyList<DiffRowViewModel> _diffRows = Array.Empty<DiffRowViewModel>();
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ApplySelectedLinesCommand))]
+    private IReadOnlyList<DiffRowViewModel> _selectedDiffRows = Array.Empty<DiffRowViewModel>();
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasDiffMessage))]
+    private string _diffMessage = NoSelectionMessage;
+
+    private const string NoSelectionMessage = "変更ファイルを選ぶと差分を表示します。";
+
+    private CancellationTokenSource? _diffLoadCts;
+
     /// <summary><see cref="WorkingChangesViewModel"/> を初期化します。</summary>
     /// <param name="commitService">コミットサービス。</param>
     /// <param name="notificationService">通知サービス。</param>
@@ -46,11 +66,115 @@ public sealed partial class WorkingChangesViewModel : ObservableObject
     /// <summary>HEAD のコミットメッセージ(Amend にしたときの初期値)。<see cref="MainViewModel"/> が設定する。</summary>
     public string? HeadCommitMessage { get; set; }
 
+    /// <summary>差分ペインのボタンの文言(ステージ済みのファイルなら解除)。</summary>
+    public string ApplyLinesLabel => CurrentPatch?.Change.IsStaged == true ? "選択行をステージ解除" : "選択行をステージ";
+
+    /// <summary>差分の代わりに表示するメッセージがあるかどうか。</summary>
+    public bool HasDiffMessage => DiffMessage.Length != 0;
+
     /// <summary>表示を空にします。</summary>
     public void Clear()
     {
         Changes.Clear();
         SelectedChange = null;
+    }
+
+    partial void OnSelectedChangeChanged(FileChange? value)
+    {
+        _ = LoadDiffAsync(value);
+    }
+
+    /// <summary>選択された変更ファイルの diff を読み込み、差分ペインに表示します。</summary>
+    private async Task LoadDiffAsync(FileChange? change)
+    {
+        // 選択を素早く切り替えたときは、前の読み込みを取り消す
+        _diffLoadCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _diffLoadCts = cts;
+
+        CurrentPatch = null;
+        DiffRows = Array.Empty<DiffRowViewModel>();
+
+        string? path = _context.RepositoryPath;
+        if (change == null || path == null)
+        {
+            DiffMessage = NoSelectionMessage;
+            return;
+        }
+
+        if (change.Kind is FileChangeKind.Renamed or FileChangeKind.Copied or FileChangeKind.Conflicted)
+        {
+            DiffMessage = "名前変更・コピー・競合中のファイルは行単位で操作できません。チェックボックスでファイル単位で操作してください。";
+            return;
+        }
+
+        DiffMessage = "差分を読み込んでいます...";
+        FilePatch patch;
+        try
+        {
+            patch = await _commitService.GetFilePatchAsync(path, change, cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            if (_diffLoadCts == cts)
+            {
+                DiffMessage = "差分を取得できませんでした。";
+                _context.ReportLoadError("差分の取得", ex);
+            }
+
+            return;
+        }
+
+        if (_diffLoadCts != cts)
+        {
+            return;
+        }
+
+        CurrentPatch = patch;
+        if (!patch.CanApplyLines)
+        {
+            DiffMessage = patch.IsBinary ? "バイナリファイルは行単位で操作できません。"
+                : patch.Hunks.Count == 0 ? "表示できる行の差分はありません(モード変更のみなど)。"
+                : "このファイルは行単位で操作できません。";
+            return;
+        }
+
+        var rows = new List<DiffRowViewModel>();
+        foreach (DiffHunk hunk in patch.Hunks)
+        {
+            rows.Add(new DiffRowViewModel(hunk, null));
+            rows.AddRange(hunk.Lines.Select(line => new DiffRowViewModel(hunk, line)));
+        }
+
+        DiffMessage = string.Empty;
+        DiffRows = rows;
+    }
+
+    private bool CanApplySelectedLines() => CurrentPatch?.CanApplyLines == true && SelectedDiffRows.Any(r => r.ChangeLines.Any());
+
+    [RelayCommand(CanExecute = nameof(CanApplySelectedLines))]
+    private Task ApplySelectedLinesAsync(CancellationToken ct)
+    {
+        FilePatch? patch = CurrentPatch;
+        List<DiffLine> lines = SelectedDiffRows.SelectMany(r => r.ChangeLines).Distinct().ToList();
+        if (patch == null || lines.Count == 0)
+        {
+            return Task.CompletedTask;
+        }
+
+        // ステージ済みの差分なら解除、未ステージの差分ならステージ(git apply --cached)
+        bool isStaged = patch.Change.IsStaged;
+        string name = $"{(isStaged ? "選択行のステージ解除" : "選択行のステージ")} ({patch.Change.Path}, {lines.Count} 行)";
+        return _context.RunAsync(
+            name,
+            (path, token) => isStaged
+                ? _commitService.UnstageLinesAsync(path, patch, lines, token)
+                : _commitService.StageLinesAsync(path, patch, lines, token),
+            ct);
     }
 
     partial void OnIsAmendChanged(bool value)
@@ -76,11 +200,21 @@ public sealed partial class WorkingChangesViewModel : ObservableObject
         {
             IReadOnlyList<FileChange> changes = await _commitService.GetStatusAsync(path, ct);
 
+            // 一覧を作り直すと選択が外れるため、選んでいたファイルを覚えておく(差分ペインの表示を保つ)
+            FileChange? previous = SelectedChange;
+
             // ステージ済みを先に、その中はパス順に並べる
             Changes.Clear();
             foreach (FileChange change in changes.OrderByDescending(c => c.IsStaged).ThenBy(c => c.Path, StringComparer.OrdinalIgnoreCase))
             {
                 Changes.Add(change);
+            }
+
+            // 同じファイルの同じ側(ステージ済み / 未ステージ)を選び直す。行をすべてステージした後などはもう一方の側を選ぶ
+            if (previous != null)
+            {
+                SelectedChange = Changes.FirstOrDefault(c => c.Path == previous.Path && c.IsStaged == previous.IsStaged)
+                    ?? Changes.FirstOrDefault(c => c.Path == previous.Path);
             }
         }
         catch (OperationCanceledException)

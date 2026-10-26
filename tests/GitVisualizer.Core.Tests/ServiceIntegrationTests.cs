@@ -57,6 +57,76 @@ public class ServiceIntegrationTests
     }
 
     [Fact]
+    public async Task CommitService_行単位のステージとステージ解除()
+    {
+        using var repo = await TempRepository.CreateAsync();
+        var service = new CommitService(repo.Runner, repo.Parser);
+        await repo.CommitFileAsync("f.txt", "a\nb\nc\nd\ne\n", "init");
+        repo.WriteFile("f.txt", "a\nB1\nB2\nc\nd\nE\n");
+
+        // "-b" と "+B1" だけをステージ
+        FileChange unstaged = Assert.Single(await service.GetStatusAsync(repo.Path));
+        FilePatch patch = await service.GetFilePatchAsync(repo.Path, unstaged);
+        GitResult stage = await service.StageLinesAsync(repo.Path, patch, patch.ChangeLines.Where(l => l.Text is "b" or "B1").ToList());
+        Assert.True(stage.IsSuccess, stage.StandardError);
+        Assert.Equal("a\nB1\nc\nd\ne\n", (await repo.GitAsync("show", ":f.txt")).StandardOutput);
+
+        // ステージ済みの側から "-b" だけを解除
+        FileChange staged = (await service.GetStatusAsync(repo.Path)).Single(c => c.IsStaged);
+        FilePatch stagedPatch = await service.GetFilePatchAsync(repo.Path, staged);
+        GitResult unstage = await service.UnstageLinesAsync(repo.Path, stagedPatch, stagedPatch.ChangeLines.Where(l => l.Text == "b").ToList());
+        Assert.True(unstage.IsSuccess, unstage.StandardError);
+        Assert.Equal("a\nb\nB1\nc\nd\ne\n", (await repo.GitAsync("show", ":f.txt")).StandardOutput);
+
+        // 作業ツリーは変わらない
+        Assert.Equal("a\nB1\nB2\nc\nd\nE\n", File.ReadAllText(Path.Combine(repo.Path, "f.txt")));
+    }
+
+    [Fact]
+    public async Task CommitService_未追跡ファイルの一部の行をステージ()
+    {
+        using var repo = await TempRepository.CreateAsync();
+        var service = new CommitService(repo.Runner, repo.Parser);
+        await repo.CommitFileAsync("keep.txt", "k\n", "init");
+        repo.WriteFile("n.txt", "x\ny\nz\n");
+
+        FileChange untracked = Assert.Single(await service.GetStatusAsync(repo.Path));
+        FilePatch patch = await service.GetFilePatchAsync(repo.Path, untracked);
+        Assert.True(patch.IsNewFile);
+
+        GitResult result = await service.StageLinesAsync(repo.Path, patch, patch.ChangeLines.Where(l => l.Text != "y").ToList());
+        Assert.True(result.IsSuccess, result.StandardError);
+        Assert.Equal("x\nz\n", (await repo.GitAsync("show", ":n.txt")).StandardOutput);
+
+        var status = await service.GetStatusAsync(repo.Path);
+        Assert.Contains(status, c => c.Path == "n.txt" && c.IsStaged && c.Kind == FileChangeKind.Added);
+        Assert.Contains(status, c => c.Path == "n.txt" && !c.IsStaged);
+    }
+
+    [Fact]
+    public async Task CommitService_ShiftJISとCRLFのファイルを行単位でステージ()
+    {
+        using var repo = await TempRepository.CreateAsync();
+        var service = new CommitService(repo.Runner, repo.Parser);
+        Encoding sjis = Encoding.GetEncoding(932);
+        string full = Path.Combine(repo.Path, "s.txt");
+        File.WriteAllBytes(full, sjis.GetBytes("あ\r\nい\r\nう\r\n"));
+        await repo.GitAsync("add", "--", "s.txt");
+        await repo.GitAsync("commit", "-q", "-m", "init");
+        File.WriteAllBytes(full, sjis.GetBytes("あ\r\nイ\r\nう\r\nえ\r\n"));
+
+        FilePatch patch = await service.GetFilePatchAsync(repo.Path, Assert.Single(await service.GetStatusAsync(repo.Path)));
+        Assert.Equal(new[] { "い", "イ", "え" }, patch.ChangeLines.Select(l => l.Text));
+
+        GitResult result = await service.StageLinesAsync(repo.Path, patch, patch.ChangeLines.Where(l => l.Text == "え").ToList());
+        Assert.True(result.IsSuccess, result.StandardError);
+
+        string indexFile = Path.Combine(repo.Path, "index.out");
+        await repo.Runner.RunToFileAsync(repo.Path, new[] { "show", ":s.txt" }, indexFile);
+        Assert.Equal(sjis.GetBytes("あ\r\nい\r\nう\r\nえ\r\n"), File.ReadAllBytes(indexFile));
+    }
+
+    [Fact]
     public async Task BranchService_一覧取得と未コミット変更を退避したチェックアウト()
     {
         using var repo = await TempRepository.CreateAsync();
