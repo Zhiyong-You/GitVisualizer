@@ -33,10 +33,18 @@ public sealed partial class WorkingChangesViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ApplyLinesLabel))]
     [NotifyCanExecuteChangedFor(nameof(ApplySelectedLinesCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ToggleDiffRowCommand))]
     private FilePatch? _currentPatch;
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ApplySelectedLinesCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ToggleDiffRowCommand))]
     private IReadOnlyList<DiffRowViewModel> _diffRows = Array.Empty<DiffRowViewModel>();
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ApplySelectedLinesCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ToggleDiffRowCommand))]
+    private bool _isApplyingDiff;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ApplySelectedLinesCommand))]
@@ -119,6 +127,7 @@ public sealed partial class WorkingChangesViewModel : ObservableObject
         _diffLoadCts = cts;
 
         CurrentPatch = null;
+        SelectedDiffRows = Array.Empty<DiffRowViewModel>();
         DiffRows = Array.Empty<DiffRowViewModel>();
 
         string? path = _context.RepositoryPath;
@@ -169,38 +178,51 @@ public sealed partial class WorkingChangesViewModel : ObservableObject
             return;
         }
 
-        var rows = new List<DiffRowViewModel>();
-        foreach (DiffHunk hunk in patch.Hunks)
-        {
-            rows.Add(new DiffRowViewModel(hunk, null));
-            rows.AddRange(hunk.Lines.Select(line => new DiffRowViewModel(hunk, line)));
-        }
-
         DiffMessage = string.Empty;
-        DiffRows = rows;
+        DiffRows = DiffRowViewModel.CreateRows(patch);
     }
 
-    private bool CanApplySelectedLines() => CurrentPatch?.CanApplyLines == true && SelectedDiffRows.Any(r => r.ChangeLines.Any());
+    private bool CanApplySelectedLines() => !IsApplyingDiff && CurrentPatch?.CanApplyLines == true && SelectedDiffRows.Any(r => DiffRows.Contains(r) && r.ChangeLines.Any());
 
     [RelayCommand(CanExecute = nameof(CanApplySelectedLines))]
     private Task ApplySelectedLinesAsync(CancellationToken ct)
     {
+        return ApplyLinesAsync(SelectedDiffRows.Where(DiffRows.Contains).SelectMany(r => r.ChangeLines).Distinct().ToList(), ct);
+    }
+
+    private bool CanToggleDiffRow(DiffRowViewModel? row) =>
+        !IsApplyingDiff && CurrentPatch?.CanApplyLines == true && row?.HasChanges == true && DiffRows.Contains(row);
+
+    [RelayCommand(CanExecute = nameof(CanToggleDiffRow))]
+    private Task ToggleDiffRowAsync(DiffRowViewModel? row, CancellationToken ct)
+    {
+        return CanToggleDiffRow(row) ? ApplyLinesAsync(row!.ChangeLines.ToList(), ct) : Task.CompletedTask;
+    }
+
+    private async Task ApplyLinesAsync(IReadOnlyCollection<DiffLine> lines, CancellationToken ct)
+    {
         FilePatch? patch = CurrentPatch;
-        List<DiffLine> lines = SelectedDiffRows.SelectMany(r => r.ChangeLines).Distinct().ToList();
-        if (patch == null || lines.Count == 0)
+        if (IsApplyingDiff || patch?.CanApplyLines != true || lines.Count == 0)
         {
-            return Task.CompletedTask;
+            return;
         }
 
-        // ステージ済みの差分なら解除、未ステージの差分ならステージ(git apply --cached)
-        bool isStaged = patch.Change.IsStaged;
-        string name = $"{(isStaged ? "選択行のステージ解除" : "選択行のステージ")} ({patch.Change.Path}, {lines.Count} 行)";
-        return _context.RunAsync(
-            name,
-            (path, token) => isStaged
-                ? _commitService.UnstageLinesAsync(path, patch, lines, token)
-                : _commitService.StageLinesAsync(path, patch, lines, token),
-            ct);
+        IsApplyingDiff = true;
+        try
+        {
+            bool isStaged = patch.Change.IsStaged;
+            string name = $"{(isStaged ? "選択行のステージ解除" : "選択行のステージ")} ({patch.Change.Path}, {lines.Count} 行)";
+            await _context.RunAsync(
+                name,
+                (path, token) => isStaged
+                    ? _commitService.UnstageLinesAsync(path, patch, lines, token)
+                    : _commitService.StageLinesAsync(path, patch, lines, token),
+                ct);
+        }
+        finally
+        {
+            IsApplyingDiff = false;
+        }
     }
 
     partial void OnIsAmendChanged(bool value)

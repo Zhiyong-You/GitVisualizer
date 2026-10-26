@@ -16,6 +16,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\..\src\GitVisualizer.UI\ViewModels\DiffRowViewModel.cs" Link="ViewModels\DiffRowViewModel.cs" />
     <ProjectReference Include="..\..\src\GitVisualizer.Core\GitVisualizer.Core.csproj" />
     <!-- reword の結合テストで GitEditorHelper.exe を出力フォルダにコピーして使う -->
     <ProjectReference Include="..\..\src\GitEditorHelper\GitEditorHelper.csproj" />
