@@ -35,6 +35,13 @@ public interface ICommitService
     /// <returns>1 ファイル分の diff。</returns>
     Task<FilePatch> GetFilePatchAsync(string repositoryPath, FileChange change, CancellationToken ct = default);
 
+    /// <summary>差分ビューアー用に変更前と変更後のファイルを取り出します(ステージ済みは HEAD とインデックス、未ステージはインデックスと作業ツリー)。</summary>
+    /// <param name="repositoryPath">リポジトリのルートパス。</param>
+    /// <param name="change">対象の変更ファイル。</param>
+    /// <param name="ct">キャンセルトークン。</param>
+    /// <returns>比較する一時ファイルと見出し。</returns>
+    Task<FileDiff> GetFileDiffAsync(string repositoryPath, FileChange change, CancellationToken ct = default);
+
     /// <summary>未ステージの diff のうち、選択した行だけをインデックスに追加します。</summary>
     /// <param name="repositoryPath">リポジトリのルートパス。</param>
     /// <param name="patch"><see cref="GetFilePatchAsync"/> で取得した未ステージの diff。</param>

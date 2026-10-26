@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using GitVisualizer.Core.Infrastructure;
@@ -106,6 +107,62 @@ public sealed class CommitService : ICommitService
         }
 
         return UnifiedDiffParser.Parse(output.ReadAllBytes(), change);
+    }
+
+    /// <inheritdoc/>
+    public async Task<FileDiff> GetFileDiffAsync(string repositoryPath, FileChange change, CancellationToken ct = default)
+    {
+        string oldPath = change.OldPath ?? change.Path;
+        bool hasLeft = change.Kind != FileChangeKind.Untracked && !(change.IsStaged && change.Kind == FileChangeKind.Added);
+        bool hasRight = change.Kind != FileChangeKind.Deleted;
+        // 競合中は通常のインデックス(stage 0)がないため、HEAD と作業ツリーを比較する。
+        string leftRevision = change.IsStaged || change.Kind == FileChangeKind.Conflicted ? "HEAD" : string.Empty;
+        if (change.Kind == FileChangeKind.Conflicted)
+        {
+            GitResult exists = await _runner.RunAsync(repositoryPath, new[] { "cat-file", "-e", "HEAD:" + oldPath }, ct: ct).ConfigureAwait(false);
+            hasLeft = exists.IsSuccess;
+            hasRight = File.Exists(Path.Combine(repositoryPath, change.Path));
+        }
+
+        string session = DiffTempDirectory.CreateSessionDirectory();
+        string leftFile = Path.Combine(session, "before", Path.GetFileName(oldPath));
+        string rightFile = Path.Combine(session, "after", Path.GetFileName(change.Path));
+
+        await WriteDiffFileAsync(repositoryPath, hasLeft ? leftRevision + ":" + oldPath : null, null, leftFile, ct).ConfigureAwait(false);
+        await WriteDiffFileAsync(
+            repositoryPath,
+            hasRight && change.IsStaged ? ":" + change.Path : null,
+            hasRight && !change.IsStaged ? Path.Combine(repositoryPath, change.Path) : null,
+            rightFile,
+            ct).ConfigureAwait(false);
+
+        string leftLabel = $"{oldPath} ({(hasLeft ? leftRevision == "HEAD" ? "HEAD" : "インデックス" : "変更前なし")})";
+        string rightLabel = $"{change.Path} ({(hasRight ? change.IsStaged ? "インデックス" : "作業ツリー" : "削除")})";
+        return new FileDiff(leftFile, rightFile, leftLabel, rightLabel, $"{Path.GetFileName(change.Path)} ({(change.IsStaged ? "ステージ済み" : "未ステージ")})");
+    }
+
+    private async Task WriteDiffFileAsync(string repositoryPath, string? blob, string? sourceFile, string destination, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+        if (blob != null)
+        {
+            GitResult result = await _runner.RunToFileAsync(repositoryPath, new[] { "cat-file", "--filters", blob }, destination, ct).ConfigureAwait(false);
+            if (!result.IsSuccess)
+            {
+                throw new InvalidOperationException(result.StandardError);
+            }
+        }
+        else if (sourceFile != null)
+        {
+            File.Copy(sourceFile, destination);
+        }
+        else
+        {
+            File.WriteAllBytes(destination, Array.Empty<byte>());
+        }
+
+        File.SetAttributes(destination, FileAttributes.ReadOnly);
     }
 
     /// <inheritdoc/>

@@ -90,6 +90,29 @@ public partial class MainView : UserControl
         }
     }
 
+    private void OnWorkingFileMouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        var source = e.OriginalSource as DependencyObject;
+        if (e.ChangedButton == MouseButton.Left
+            && FindAncestor<CheckBox>(source) == null
+            && FindAncestor<ListBoxItem>(source) is { DataContext: FileChange file }
+            && ViewModel?.WorkingChanges.OpenDiffCommand is { } command
+            && command.CanExecute(file))
+        {
+            e.Handled = true;
+            command.Execute(file);
+        }
+    }
+
+    private void OnWorkingFileMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject) is { DataContext: FileChange } item)
+        {
+            item.IsSelected = true;
+            item.Focus();
+        }
+    }
+
     private void OpenCommitFileDiff(FileChange file)
     {
         if (ViewModel?.CommitDetail.OpenDiffCommand is { } command && command.CanExecute(file))

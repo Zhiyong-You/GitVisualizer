@@ -352,7 +352,7 @@
             <Border Grid.Column="0" Style="{StaticResource PaneBorderStyle}">
                 <DockPanel>
                     <DockPanel DockPanel.Dock="Top" LastChildFill="False">
-                        <TextBlock DockPanel.Dock="Left" Text="変更ファイル(チェック = ステージ済み)" Style="{StaticResource PaneHeaderStyle}" />
+                        <TextBlock DockPanel.Dock="Left" Text="変更ファイル" Style="{StaticResource PaneHeaderStyle}" />
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,4,0">
                             <Button Content="すべてステージ" Command="{Binding StageAllCommand}"
                                     Margin="4,2,0,2" Padding="6,0" Style="{DynamicResource {x:Static vsshell:VsResourceKeys.ButtonStyleKey}}" />
@@ -363,7 +363,16 @@
 					<ListView ItemsSource="{Binding Source={StaticResource GroupedWorkingChanges}}"
                               SelectedItem="{Binding SelectedChange}"
                               Style="{StaticResource ThemedListStyle}"
-                              ItemContainerStyle="{StaticResource ThemedListItemStyle}">
+                              ItemContainerStyle="{StaticResource ThemedListItemStyle}"
+                              MouseDoubleClick="OnWorkingFileMouseDoubleClick"
+                              PreviewMouseRightButtonDown="OnWorkingFileMouseRightButtonDown">
+                        <ListView.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="差分を表示"
+                                          Command="{Binding OpenDiffCommand}"
+                                          CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                            </ContextMenu>
+                        </ListView.ContextMenu>
 
 						<ListView.GroupStyle>
 							<GroupStyle>

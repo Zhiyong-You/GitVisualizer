@@ -16,6 +16,7 @@ namespace GitVisualizer.UI.ViewModels;
 public sealed partial class WorkingChangesViewModel : ObservableObject
 {
     private readonly ICommitService _commitService;
+    private readonly IDiffViewerService _diffViewerService;
     private readonly INotificationService _notificationService;
     private readonly GitOperationContext _context;
 
@@ -51,11 +52,13 @@ public sealed partial class WorkingChangesViewModel : ObservableObject
 
     /// <summary><see cref="WorkingChangesViewModel"/> を初期化します。</summary>
     /// <param name="commitService">コミットサービス。</param>
+    /// <param name="diffViewerService">差分の表示先。</param>
     /// <param name="notificationService">通知サービス。</param>
     /// <param name="context">操作対象リポジトリと操作の実行手順。</param>
-    public WorkingChangesViewModel(ICommitService commitService, INotificationService notificationService, GitOperationContext context)
+    public WorkingChangesViewModel(ICommitService commitService, IDiffViewerService diffViewerService, INotificationService notificationService, GitOperationContext context)
     {
         _commitService = commitService;
+        _diffViewerService = diffViewerService;
         _notificationService = notificationService;
         _context = context;
     }
@@ -82,6 +85,29 @@ public sealed partial class WorkingChangesViewModel : ObservableObject
     partial void OnSelectedChangeChanged(FileChange? value)
     {
         _ = LoadDiffAsync(value);
+    }
+
+    [RelayCommand]
+    private async Task OpenDiffAsync(FileChange? file, CancellationToken ct)
+    {
+        string? path = _context.RepositoryPath;
+        if (file == null || path == null)
+        {
+            return;
+        }
+
+        try
+        {
+            FileDiff diff = await _commitService.GetFileDiffAsync(path, file, ct);
+            await _diffViewerService.ShowDiffAsync(diff, ct);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            _context.ReportLoadError("差分の表示", ex);
+        }
     }
 
     /// <summary>選択された変更ファイルの diff を読み込み、差分ペインに表示します。</summary>

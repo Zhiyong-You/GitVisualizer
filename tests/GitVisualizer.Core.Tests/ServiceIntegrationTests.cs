@@ -56,6 +56,138 @@ public class ServiceIntegrationTests
         Assert.Equal("1", (await repo.GitAsync("rev-list", "--count", "HEAD")).StandardOutput.Trim());
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CommitService_差分はステージ済みと未ステージを区別してバイト列を保持する(bool staged)
+    {
+        using var repo = await TempRepository.CreateAsync();
+        var service = new CommitService(repo.Runner, repo.Parser);
+        await repo.CommitFileAsync("dir/日本語.dat", "base", "init");
+        byte[] before = { 0x82, 0xA0, 0x00, 0xFF };
+        byte[] index = { 0x82, 0xA2, 0x00, 0xFE };
+        byte[] working = { 0x82, 0xA4, 0x00, 0xFD };
+        string fullPath = Path.Combine(repo.Path, "dir/日本語.dat");
+        File.WriteAllBytes(fullPath, before);
+        await repo.GitAsync("add", "-A");
+        await repo.GitAsync("commit", "-q", "-m", "binary");
+        File.WriteAllBytes(fullPath, index);
+        await repo.GitAsync("add", "-A");
+        File.WriteAllBytes(fullPath, working);
+
+        FileChange change = (await service.GetStatusAsync(repo.Path)).Single(c => c.IsStaged == staged);
+        FileDiff diff = await service.GetFileDiffAsync(repo.Path, change);
+        try
+        {
+            Assert.Equal(staged ? before : index, File.ReadAllBytes(diff.LeftFile));
+            Assert.Equal(staged ? index : working, File.ReadAllBytes(diff.RightFile));
+            Assert.Equal("日本語.dat", Path.GetFileName(diff.RightFile));
+            Assert.Equal(working, File.ReadAllBytes(fullPath));
+        }
+        finally
+        {
+            DeleteDiffFiles(diff);
+        }
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task CommitService_追加と削除の差分は存在しない側を空にする(bool staged, bool deleted)
+    {
+        using var repo = await TempRepository.CreateAsync();
+        var service = new CommitService(repo.Runner, repo.Parser);
+        if (deleted)
+        {
+            await repo.CommitFileAsync("file.txt", "content", "init");
+            File.Delete(Path.Combine(repo.Path, "file.txt"));
+        }
+        else
+        {
+            repo.WriteFile("file.txt", "content");
+        }
+
+        if (staged)
+        {
+            await repo.GitAsync("add", "-A");
+        }
+
+        FileDiff diff = await service.GetFileDiffAsync(repo.Path, Assert.Single(await service.GetStatusAsync(repo.Path)));
+        try
+        {
+            Assert.Equal(deleted ? "content" : string.Empty, File.ReadAllText(diff.LeftFile));
+            Assert.Equal(deleted ? string.Empty : "content", File.ReadAllText(diff.RightFile));
+        }
+        finally
+        {
+            DeleteDiffFiles(diff);
+        }
+    }
+
+    [Fact]
+    public async Task CommitService_名前変更の差分は変更前のパスとインデックスを使う()
+    {
+        using var repo = await TempRepository.CreateAsync();
+        var service = new CommitService(repo.Runner, repo.Parser);
+        await repo.CommitFileAsync("old.txt", "original", "init");
+        await repo.GitAsync("mv", "old.txt", "new.txt");
+        repo.WriteFile("new.txt", "working");
+        FileChange change = (await service.GetStatusAsync(repo.Path)).Single(c => c.IsStaged);
+        Assert.Equal(FileChangeKind.Renamed, change.Kind);
+
+        FileDiff diff = await service.GetFileDiffAsync(repo.Path, change);
+        try
+        {
+            Assert.Equal("original", File.ReadAllText(diff.LeftFile));
+            Assert.Equal("original", File.ReadAllText(diff.RightFile));
+            Assert.Equal("old.txt", Path.GetFileName(diff.LeftFile));
+            Assert.Equal("new.txt", Path.GetFileName(diff.RightFile));
+        }
+        finally
+        {
+            DeleteDiffFiles(diff);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CommitService_競合中はHEADと作業ツリーの差分を開く(bool deletedByUs)
+    {
+        using var repo = await TempRepository.CreateAsync();
+        var service = new CommitService(repo.Runner, repo.Parser);
+        await repo.CommitFileAsync("file.txt", "base", "init");
+        await repo.GitAsync("switch", "-q", "-c", "feature");
+        await repo.CommitFileAsync("file.txt", "feature", "feature");
+        await repo.GitAsync("switch", "-q", "main");
+        if (deletedByUs)
+        {
+            await repo.GitAsync("rm", "file.txt");
+            await repo.GitAsync("commit", "-q", "-m", "delete");
+        }
+        else
+        {
+            await repo.CommitFileAsync("file.txt", "main", "main");
+        }
+
+        GitResult merge = await repo.Runner.RunAsync(repo.Path, new[] { "merge", "feature" });
+        Assert.False(merge.IsSuccess);
+        FileChange change = Assert.Single(await service.GetStatusAsync(repo.Path));
+        Assert.Equal(FileChangeKind.Conflicted, change.Kind);
+        FileDiff diff = await service.GetFileDiffAsync(repo.Path, change);
+        try
+        {
+            Assert.Equal(deletedByUs ? string.Empty : "main", File.ReadAllText(diff.LeftFile));
+            Assert.Equal(File.ReadAllBytes(Path.Combine(repo.Path, "file.txt")), File.ReadAllBytes(diff.RightFile));
+        }
+        finally
+        {
+            DeleteDiffFiles(diff);
+        }
+    }
+
     [Fact]
     public async Task CommitService_行単位のステージとステージ解除()
     {

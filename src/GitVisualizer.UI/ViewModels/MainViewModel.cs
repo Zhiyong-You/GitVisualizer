@@ -62,7 +62,7 @@ public sealed partial class MainViewModel : ObservableObject
         BranchTree = new BranchTreeViewModel(branchService, dialogService, _context);
         CommitHistory = new CommitHistoryViewModel(historyService, graphBuilder, dialogService, _context);
         CommitDetail = new CommitDetailViewModel(historyService, diffViewerService, _context);
-        WorkingChanges = new WorkingChangesViewModel(commitService, notificationService, _context);
+        WorkingChanges = new WorkingChangesViewModel(commitService, diffViewerService, notificationService, _context);
         OperationState = new OperationStateViewModel(historyService, repositoryStateService, dialogService, _context);
 
         _context.State = OperationState;
