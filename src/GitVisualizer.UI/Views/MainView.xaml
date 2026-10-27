@@ -96,17 +96,17 @@
         </Style>
     </UserControl.Resources>
 
-    <Grid>
+    <Grid x:Name="RootLayout">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />               <!-- ツールバー -->
-            <RowDefinition Height="*" MinHeight="120" />  <!-- ブランチ / 履歴 / 詳細 -->
-            <RowDefinition Height="5" />                  <!-- スプリッター -->
-            <RowDefinition Height="260" MinHeight="120" /><!-- 変更ファイル / 差分 / コミット入力 -->
+            <RowDefinition x:Name="BranchRow" Height="*" MinHeight="120" />
+            <RowDefinition Height="0" />
+            <RowDefinition x:Name="WorkingChangesRow" Height="0" />
             <RowDefinition Height="Auto" />               <!-- ステータスバー -->
         </Grid.RowDefinitions>
 
         <!-- ===== 上: ツールバー ===== -->
-        <Border Grid.Row="0"
+        <Border x:Name="BranchToolbar" Grid.Row="0"
                 Padding="6,4"
                 Background="{DynamicResource {x:Static platformUI:EnvironmentColors.CommandBarGradientBrushKey}}"
                 BorderBrush="{DynamicResource {x:Static platformUI:EnvironmentColors.CommandBarToolBarBorderBrushKey}}"
@@ -136,7 +136,7 @@
         </Border>
 
         <!-- ===== 中段: ブランチ / 履歴 / 詳細 ===== -->
-        <Grid Grid.Row="1">
+        <Grid x:Name="BranchPane" Grid.Row="1">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="220" MinWidth="120" />
                 <ColumnDefinition Width="5" />
@@ -329,10 +329,16 @@
             </Border>
         </Grid>
 
-        <GridSplitter Grid.Row="2" Style="{StaticResource SplitterStyle}" />
+        <Border x:Name="WorkingChangesToolbar" Grid.Row="0" Visibility="Collapsed" Padding="6,4"
+                Background="{DynamicResource {x:Static platformUI:EnvironmentColors.CommandBarGradientBrushKey}}">
+            <Button Content="更新" ToolTip="リポジトリを再読み込みします"
+                    Command="{Binding RefreshCommand}" HorizontalAlignment="Left"
+                    Style="{DynamicResource {x:Static vsshell:VsResourceKeys.ButtonStyleKey}}"
+                    Padding="10,2" MinWidth="60" />
+        </Border>
 
         <!-- ===== 下: 変更ファイル一覧 + コミット入力 ===== -->
-        <Grid Grid.Row="3" DataContext="{Binding WorkingChanges}">
+        <Grid x:Name="WorkingChangesPane" Grid.Row="3" DataContext="{Binding WorkingChanges}">
 			<Grid.Resources>
 				<CollectionViewSource x:Key="GroupedWorkingChanges"
 									  Source="{Binding Changes}">

@@ -20,9 +20,12 @@ namespace GitVisualizer.Vsix;
 [Guid(PackageIds.PackageGuidString)]
 [ProvideMenuResource("Menus.ctmenu", 1)]
 [ProvideToolWindow(typeof(GitVisualizerToolWindow), Style = VsDockStyle.Tabbed, Window = ToolWindowGuids80.Outputwindow)]
+[ProvideToolWindow(typeof(WorkingChangesToolWindow), Style = VsDockStyle.Tabbed, Window = ToolWindowGuids80.Outputwindow)]
 [ProvideBindingPath]
 public sealed class GitVisualizerPackage : AsyncPackage
 {
+    private System.Threading.Tasks.Task<MainViewModel>? _viewModelTask;
+
     /// <inheritdoc/>
     protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
     {
@@ -33,22 +36,33 @@ public sealed class GitVisualizerPackage : AsyncPackage
     /// <inheritdoc/>
     public override IVsAsyncToolWindowFactory? GetAsyncToolWindowFactory(Guid toolWindowType)
     {
-        return toolWindowType == typeof(GitVisualizerToolWindow).GUID ? this : null;
+        return toolWindowType == typeof(GitVisualizerToolWindow).GUID || toolWindowType == typeof(WorkingChangesToolWindow).GUID
+            ? this : null;
     }
 
     /// <inheritdoc/>
     protected override string GetToolWindowTitle(Type toolWindowType, int id)
     {
-        return toolWindowType == typeof(GitVisualizerToolWindow)
-            ? GitVisualizerToolWindow.Title
-            : base.GetToolWindowTitle(toolWindowType, id);
+        if (toolWindowType == typeof(GitVisualizerToolWindow))
+        {
+            return GitVisualizerToolWindow.Title;
+        }
+
+        return toolWindowType == typeof(WorkingChangesToolWindow)
+            ? WorkingChangesToolWindow.Title : base.GetToolWindowTitle(toolWindowType, id);
     }
 
     /// <summary>
-    /// ツールウィンドウ生成前に(バックグラウンドで)呼ばれる。サービスと ViewModel を組み立てて返し、
-    /// 戻り値は <see cref="GitVisualizerToolWindow"/> のコンストラクタに渡される(簡易的な手動 DI)。
+    /// ツールウィンドウ生成前に呼ばれ、両方の画面で共有する ViewModel を返します。
     /// </summary>
     protected override async System.Threading.Tasks.Task<object> InitializeToolWindowAsync(Type toolWindowType, int id, CancellationToken cancellationToken)
+    {
+        await JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
+        _viewModelTask ??= CreateViewModelAsync(DisposalToken);
+        return await _viewModelTask;
+    }
+
+    private async System.Threading.Tasks.Task<MainViewModel> CreateViewModelAsync(CancellationToken cancellationToken)
     {
         IOutputLogger logger = await VsOutputLogger.CreateAsync(this, cancellationToken);
 

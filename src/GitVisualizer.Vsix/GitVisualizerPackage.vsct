@@ -5,12 +5,22 @@
   <Extern href="vsshlids.h" />
 
   <Commands package="guidGitVisualizerPackage">
+    <Groups>
+      <Group guid="guidGitVisualizerCmdSet" id="GitVisualizerViewGroup" priority="0x0600">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_VIEW" />
+      </Group>
+    </Groups>
     <Buttons>
-      <!-- 表示 > その他のウィンドウ > Git Visualizer -->
       <Button guid="guidGitVisualizerCmdSet" id="cmdidShowToolWindow" priority="0x0100" type="Button">
-        <Parent guid="guidSHLMainMenu" id="IDG_VS_WNDO_OTRWNDWS1" />
+        <Parent guid="guidGitVisualizerCmdSet" id="GitVisualizerViewGroup" />
         <Strings>
-          <ButtonText>Git Visualizer</ButtonText>
+          <ButtonText>GitVisualizer ブランチ管理</ButtonText>
+        </Strings>
+      </Button>
+      <Button guid="guidGitVisualizerCmdSet" id="cmdidShowWorkingChanges" priority="0x0101" type="Button">
+        <Parent guid="guidGitVisualizerCmdSet" id="GitVisualizerViewGroup" />
+        <Strings>
+          <ButtonText>GitVisualizer 変更ファイル</ButtonText>
         </Strings>
       </Button>
     </Buttons>
@@ -22,6 +32,8 @@
 
     <GuidSymbol name="guidGitVisualizerCmdSet" value="{8307c1f9-fb2c-4dcb-aac7-ed2faf09a6e6}">
       <IDSymbol name="cmdidShowToolWindow" value="0x0100" />
+      <IDSymbol name="cmdidShowWorkingChanges" value="0x0101" />
+      <IDSymbol name="GitVisualizerViewGroup" value="0x1020" />
     </GuidSymbol>
   </Symbols>
 </CommandTable>

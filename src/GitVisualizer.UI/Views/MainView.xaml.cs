@@ -15,8 +15,31 @@ public partial class MainView : UserControl
 
     /// <summary><see cref="MainView"/> を初期化します。</summary>
     public MainView()
+        : this(false)
+    {
+    }
+
+    /// <summary>ブランチ管理または変更ファイルの画面を初期化します。</summary>
+    /// <param name="showWorkingChanges">変更ファイル画面の場合は <see langword="true"/>。</param>
+    public MainView(bool showWorkingChanges)
     {
         InitializeComponent();
+        // 共有 ViewModel に非表示側の選択イベントが届かないよう、使わないペインは取り外す。
+        RootLayout.Children.Remove(showWorkingChanges ? BranchPane : WorkingChangesPane);
+        if (showWorkingChanges)
+        {
+            RootLayout.Children.Remove(BranchToolbar);
+            BranchRow.MinHeight = 0;
+            BranchRow.Height = new GridLength(0);
+            WorkingChangesRow.MinHeight = 120;
+            WorkingChangesRow.Height = new GridLength(1, GridUnitType.Star);
+            WorkingChangesToolbar.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            RootLayout.Children.Remove(WorkingChangesToolbar);
+        }
+
         Loaded += OnLoaded;
     }
 

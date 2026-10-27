@@ -14,12 +14,18 @@ internal static class PackageIds
     /// <summary>ツールウィンドウの GUID。</summary>
     public const string ToolWindowGuidString = "ccc588b0-2eb5-41e7-96d0-53e29a4317c4";
 
+    /// <summary>変更ファイルツールウィンドウの GUID。</summary>
+    public const string WorkingChangesToolWindowGuidString = "146795c7-c069-4cc7-9c64-6c47b4149d48";
+
     /// <summary>出力ウィンドウの「Git Visualizer」ペインの GUID。</summary>
     public const string OutputPaneGuidString = "b66e93de-dabe-4dc6-892b-cb416897ca11";
 
     /// <summary>コマンドセットの GUID。</summary>
     public static readonly Guid CommandSet = new(CommandSetGuidString);
 
-    /// <summary>「表示 &gt; その他のウィンドウ &gt; Git Visualizer」コマンド(vsct: cmdidShowToolWindow)。</summary>
+    /// <summary>「表示 &gt; GitVisualizer ブランチ管理」コマンド(vsct: cmdidShowToolWindow)。</summary>
     public const int ShowToolWindowCommandId = 0x0100;
+
+    /// <summary>「表示 &gt; GitVisualizer 変更ファイル」コマンド(vsct: cmdidShowWorkingChanges)。</summary>
+    public const int ShowWorkingChangesCommandId = 0x0101;
 }

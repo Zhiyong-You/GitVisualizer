@@ -5,12 +5,12 @@ using Microsoft.VisualStudio.Shell;
 
 namespace GitVisualizer.Vsix;
 
-/// <summary>Git Visualizer のツールウィンドウ。</summary>
+/// <summary>Git Visualizer のブランチ管理ツールウィンドウ。</summary>
 [Guid(PackageIds.ToolWindowGuidString)]
 public sealed class GitVisualizerToolWindow : ToolWindowPane
 {
     /// <summary>ウィンドウのタイトル。</summary>
-    public const string Title = "Git Visualizer";
+    public const string Title = "GitVisualizer ブランチ管理";
 
     /// <summary><see cref="GitVisualizerToolWindow"/> を初期化します(UI スレッドで呼ばれる)。</summary>
     /// <param name="viewModel"><see cref="GitVisualizerPackage"/>.InitializeToolWindowAsync で組み立てた ViewModel。</param>
@@ -18,6 +18,6 @@ public sealed class GitVisualizerToolWindow : ToolWindowPane
         : base(null)
     {
         Caption = Title;
-        Content = new MainView { DataContext = viewModel };
+        Content = new MainView(showWorkingChanges: false) { DataContext = viewModel };
     }
 }
