@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    初回インストール用のセットアップ exe。
+    VS(や残っている MSBuild)が起動中だと VSIXInstaller が理由を出さずに待ち続けるため、
+    先にそれらを閉じるよう案内してから、埋め込んだ .vsix でインストーラーを開く。
+    .vsix を埋め込むので、配布するのはこの exe 1 つだけ。
+    VSIX プロジェクトに依存するため、dotnet build ではなく VS / msbuild でソリューションごとビルドする。
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net472</TargetFramework>
+    <RootNamespace>GitVisualizerSetup</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="System.Windows.Forms" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- ビルド順序のためだけに参照し、出力された .vsix を exe に埋め込む -->
+    <ProjectReference Include="..\GitVisualizer.Vsix\GitVisualizer.Vsix.csproj">
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <SkipGetTargetFrameworkProperties>true</SkipGetTargetFrameworkProperties>
+    </ProjectReference>
+    <EmbeddedResource Include="..\GitVisualizer.Vsix\bin\$(Configuration)\GitVisualizer.Vsix.vsix" LogicalName="GitVisualizer.vsix" />
+  </ItemGroup>
+
+</Project>

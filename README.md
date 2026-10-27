@@ -25,12 +25,13 @@ GitVisualizer.sln
 │   ├─ GitVisualizer.Core/   net472。VS・WPF に依存しない(Models / Services / Infrastructure / Graph)
 │   ├─ GitVisualizer.UI/     net472 WPF。ViewModel(CommunityToolkit.Mvvm)と View
 │   ├─ GitVisualizer.Vsix/   VSIX 本体(Package / ToolWindow / コマンド / VS サービス実装)
-│   └─ GitEditorHelper/      reword 用の補助 exe(VSIX に同梱)
+│   ├─ GitEditorHelper/      reword 用の補助 exe(VSIX に同梱)
+│   └─ GitVisualizerSetup/   初回インストール用のセットアップ exe(.vsix を埋め込み、VS を閉じるよう案内してからインストーラーを開く)
 └─ tests/
     └─ GitVisualizer.Core.Tests/  xUnit
 ```
 
-依存関係: `Vsix → UI → Core`、`Tests → Core`。`Vsix → GitEditorHelper` は出力を同梱するだけでアセンブリ参照はしない。
+依存関係: `Vsix → UI → Core`、`Tests → Core`。`Vsix → GitEditorHelper` は出力を同梱するだけでアセンブリ参照はしない。`GitVisualizerSetup → Vsix` も同様で、ビルドされた `.vsix` を埋め込むだけ。
 
 - 対応 VS: `[17.0,19.0)`(VS 2022 / VS 2026)、amd64 / arm64
 - git 操作は git.exe をプロセス起動する方式(LibGit2Sharp は使わない)
@@ -54,6 +55,15 @@ msbuild GitVisualizer.sln /restore /p:Configuration=Debug
 生成物: `src\GitVisualizer.Vsix\bin\Debug\GitVisualizer.Vsix.vsix`
 
 コマンドラインでビルドした場合、実験用インスタンスへの配置は行わない(`DeployExtension` は VS 内でのビルド時のみ有効)。
+
+## リリース
+
+- リリースごとに `source.extension.vsixmanifest` の `Version` を上げる。上がっていれば `.vsix` のダブルクリックで上書き更新でき、アンインストールは不要(同じ Version だと「インストール済み」となり更新できない)
+- 配布物は `src\GitVisualizerSetup\bin\<構成>\net472\GitVisualizerSetup.exe` の 1 ファイル(`.vsix` を埋め込んでいる)。ソリューションごと VS / msbuild でビルドすると作られる
+- インストール・更新は Visual Studio をすべて閉じてから行う必要がある(起動中の VS や、VS を閉じた後に残る MSBuild.exe が拡張機能のファイルを使っているため)。VSIX インストーラーはこの間、理由を表示せずに待ち続けるので、次の 2 か所で案内している
+  - 初回インストール: `GitVisualizerSetup.exe` が、devenv.exe / MSBuild.exe が残っていれば閉じるよう案内してからインストーラーを開く
+  - 更新: インストール済みの拡張機能が VS 起動時に読み込まれ、VSIX インストーラーの起動を検知すると「Visual Studio を閉じてください」と表示する(`InstallerWatcher`)
+- 署名していないため、ダウンロードした `GitVisualizerSetup.exe` の初回実行時に SmartScreen の警告が出る。「詳細情報 > 実行」で実行できることをリリースノートに書いておく
 
 ## テスト
 

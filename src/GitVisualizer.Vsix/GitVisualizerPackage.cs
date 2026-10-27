@@ -9,6 +9,7 @@ using GitVisualizer.UI.Abstractions;
 using GitVisualizer.UI.ViewModels;
 using GitVisualizer.Vsix.Commands;
 using GitVisualizer.Vsix.VsServices;
+using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
 using Task = System.Threading.Tasks.Task;
@@ -22,15 +23,31 @@ namespace GitVisualizer.Vsix;
 [ProvideToolWindow(typeof(GitVisualizerToolWindow), Style = VsDockStyle.Tabbed, Window = ToolWindowGuids80.Outputwindow)]
 [ProvideToolWindow(typeof(WorkingChangesToolWindow), Style = VsDockStyle.Tabbed, Window = ToolWindowGuids80.Outputwindow)]
 [ProvideBindingPath]
+// 更新用の .vsix が開かれたときに案内できるよう、ツールウィンドウを開いていなくても VS 起動時に読み込む
+[ProvideAutoLoad(VSConstants.UICONTEXT.ShellInitialized_string, PackageAutoLoadFlags.BackgroundLoad)]
 public sealed class GitVisualizerPackage : AsyncPackage
 {
     private System.Threading.Tasks.Task<MainViewModel>? _viewModelTask;
+    private InstallerWatcher? _installerWatcher;
 
     /// <inheritdoc/>
     protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
     {
+        _installerWatcher = new InstallerWatcher(this);
+
         await JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
         await ShowToolWindowCommand.InitializeAsync(this);
+    }
+
+    /// <inheritdoc/>
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _installerWatcher?.Dispose();
+        }
+
+        base.Dispose(disposing);
     }
 
     /// <inheritdoc/>
