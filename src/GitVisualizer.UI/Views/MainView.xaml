@@ -397,6 +397,8 @@
                                 <MenuItem Header="差分を表示"
                                           Command="{Binding OpenDiffCommand}"
                                           CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                <Separator />
+                                <MenuItem Header="変更を元に戻す(Revert)" Command="{Binding RevertCommand}" />
                             </ContextMenu>
                         </ListView.ContextMenu>
 

@@ -18,9 +18,11 @@ public sealed partial class WorkingChangesViewModel : ObservableObject
     private readonly ICommitService _commitService;
     private readonly IDiffViewerService _diffViewerService;
     private readonly INotificationService _notificationService;
+    private readonly IDialogService _dialogService;
     private readonly GitOperationContext _context;
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RevertCommand))]
     private FileChange? _selectedChange;
 
     [ObservableProperty]
@@ -62,12 +64,14 @@ public sealed partial class WorkingChangesViewModel : ObservableObject
     /// <param name="commitService">コミットサービス。</param>
     /// <param name="diffViewerService">差分の表示先。</param>
     /// <param name="notificationService">通知サービス。</param>
+    /// <param name="dialogService">ダイアログサービス(変更の破棄の確認に使う)。</param>
     /// <param name="context">操作対象リポジトリと操作の実行手順。</param>
-    public WorkingChangesViewModel(ICommitService commitService, IDiffViewerService diffViewerService, INotificationService notificationService, GitOperationContext context)
+    public WorkingChangesViewModel(ICommitService commitService, IDiffViewerService diffViewerService, INotificationService notificationService, IDialogService dialogService, GitOperationContext context)
     {
         _commitService = commitService;
         _diffViewerService = diffViewerService;
         _notificationService = notificationService;
+        _dialogService = dialogService;
         _context = context;
     }
 
@@ -305,6 +309,28 @@ public sealed partial class WorkingChangesViewModel : ObservableObject
         }
 
         return _context.RunAsync($"ステージ解除 ({change.Path})", (path, token) => _commitService.UnstageAsync(path, PathsOf(change), token), ct);
+    }
+
+    // 追跡中のファイルの変更・削除だけを戻せる(未追跡・追加・名前変更・競合は git restore で元の状態にならない)
+    private bool CanRevert() => SelectedChange?.Kind is FileChangeKind.Modified or FileChangeKind.Deleted;
+
+    // コンテキストメニューの CommandParameter は変わっても CanExecute が再評価されないため、選択中のファイルを対象にする(右クリックで選択される)
+    [RelayCommand(CanExecute = nameof(CanRevert))]
+    private async Task RevertAsync(CancellationToken ct)
+    {
+        FileChange? change = SelectedChange;
+        if (!CanRevert())
+        {
+            return;
+        }
+
+        string target = change!.IsStaged ? "ステージ済みの変更と作業ツリーの変更" : "未ステージの変更";
+        if (!await _dialogService.ConfirmAsync($"{change.Path} の{target}を破棄して元に戻しますか?\n\nこの操作は取り消せません。", ct))
+        {
+            return;
+        }
+
+        await _context.RunAsync($"変更を元に戻す ({change.Path})", (path, token) => _commitService.RevertAsync(path, change, token), ct);
     }
 
     [RelayCommand]

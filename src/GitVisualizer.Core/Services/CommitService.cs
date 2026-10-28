@@ -78,6 +78,16 @@ public sealed class CommitService : ICommitService
     }
 
     /// <inheritdoc/>
+    public Task<GitResult> RevertAsync(string repositoryPath, FileChange change, CancellationToken ct = default)
+    {
+        var arguments = change.IsStaged
+            ? new List<string> { "restore", "--source=HEAD", "--staged", "--worktree", "--" }
+            : new List<string> { "restore", "--worktree", "--" };
+        arguments.Add(change.Path);
+        return _runner.RunAsync(repositoryPath, arguments, ct: ct);
+    }
+
+    /// <inheritdoc/>
     public async Task<FilePatch> GetFilePatchAsync(string repositoryPath, FileChange change, CancellationToken ct = default)
     {
         // 未追跡ファイルは git diff に出ないため、空のファイルと比べる(--no-index は差分があると終了コード 1)

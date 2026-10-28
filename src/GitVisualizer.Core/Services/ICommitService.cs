@@ -28,6 +28,13 @@ public interface ICommitService
     /// <returns>git の実行結果。</returns>
     Task<GitResult> UnstageAsync(string repositoryPath, IReadOnlyList<string> paths, CancellationToken ct = default);
 
+    /// <summary>変更を破棄します(未ステージは作業ツリーをインデックスに、ステージ済みはインデックスと作業ツリーを HEAD に戻す)。</summary>
+    /// <param name="repositoryPath">リポジトリのルートパス。</param>
+    /// <param name="change">対象の変更ファイル(追跡中のファイルのみ)。</param>
+    /// <param name="ct">キャンセルトークン。</param>
+    /// <returns>git の実行結果。</returns>
+    Task<GitResult> RevertAsync(string repositoryPath, FileChange change, CancellationToken ct = default);
+
     /// <summary>変更ファイルの diff を取得します(ステージ済みならインデックスと HEAD、未ステージなら作業ツリーとインデックスの差分)。</summary>
     /// <param name="repositoryPath">リポジトリのルートパス。</param>
     /// <param name="change">対象の変更ファイル。</param>

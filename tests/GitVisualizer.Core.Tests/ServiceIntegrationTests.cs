@@ -56,6 +56,37 @@ public class ServiceIntegrationTests
         Assert.Equal("1", (await repo.GitAsync("rev-list", "--count", "HEAD")).StandardOutput.Trim());
     }
 
+    [Fact]
+    public async Task CommitService_変更を元に戻す()
+    {
+        using var repo = await TempRepository.CreateAsync();
+        var service = new CommitService(repo.Runner, repo.Parser);
+        await repo.CommitFileAsync("a.txt", "original", "1");
+        string file = Path.Combine(repo.Path, "a.txt");
+
+        // 未ステージ: ステージ済みの内容は残し、作業ツリーだけインデックスに戻す
+        repo.WriteFile("a.txt", "staged");
+        await service.StageAsync(repo.Path, new[] { "a.txt" });
+        repo.WriteFile("a.txt", "unstaged");
+        FileChange unstaged = (await service.GetStatusAsync(repo.Path)).Single(c => !c.IsStaged);
+        Assert.True((await service.RevertAsync(repo.Path, unstaged)).IsSuccess);
+        Assert.Equal("staged", File.ReadAllText(file));
+        Assert.True(Assert.Single(await service.GetStatusAsync(repo.Path)).IsStaged);
+
+        // ステージ済み: インデックスと作業ツリーを HEAD に戻す
+        FileChange staged = Assert.Single(await service.GetStatusAsync(repo.Path));
+        Assert.True((await service.RevertAsync(repo.Path, staged)).IsSuccess);
+        Assert.Equal("original", File.ReadAllText(file));
+        Assert.Empty(await service.GetStatusAsync(repo.Path));
+
+        // 削除したファイルも戻せる
+        File.Delete(file);
+        FileChange deleted = Assert.Single(await service.GetStatusAsync(repo.Path));
+        Assert.Equal(FileChangeKind.Deleted, deleted.Kind);
+        Assert.True((await service.RevertAsync(repo.Path, deleted)).IsSuccess);
+        Assert.Equal("original", File.ReadAllText(file));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
