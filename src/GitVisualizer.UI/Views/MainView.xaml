@@ -348,15 +348,35 @@
 				</CollectionViewSource>
 			</Grid.Resources>
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" MinWidth="200" />
+                <ColumnDefinition Width="*" MinWidth="240" />
                 <ColumnDefinition Width="5" />
                 <ColumnDefinition Width="2*" MinWidth="200" />
-                <ColumnDefinition Width="5" />
-                <ColumnDefinition Width="*" MinWidth="200" />
             </Grid.ColumnDefinitions>
 
+            <!-- 左: コミット入力(上) + 変更ファイル一覧(下) -->
             <Border Grid.Column="0" Style="{StaticResource PaneBorderStyle}">
                 <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="コミットメッセージ" Style="{StaticResource PaneHeaderStyle}" />
+                    <!-- 入力に合わせて高さが伸び、MaxHeight を超えたらスクロールする -->
+                    <TextBox DockPanel.Dock="Top" Margin="6,0"
+                             Text="{Binding CommitMessage, UpdateSourceTrigger=PropertyChanged}"
+                             AcceptsReturn="True"
+                             TextWrapping="Wrap"
+                             MinHeight="60" MaxHeight="150"
+                             VerticalScrollBarVisibility="Auto"
+                             VerticalContentAlignment="Top"
+                             Style="{DynamicResource {x:Static vsshell:VsResourceKeys.TextBoxStyleKey}}" />
+                    <DockPanel DockPanel.Dock="Top" Margin="6,6,6,6" LastChildFill="False">
+                        <CheckBox DockPanel.Dock="Left" Content="Amend(直前のコミットを修正)" VerticalAlignment="Center"
+                                  IsChecked="{Binding IsAmend}"
+                                  Foreground="{DynamicResource {x:Static platformUI:TreeViewColors.BackgroundTextBrushKey}}"
+                                  Style="{DynamicResource {x:Static vsshell:VsResourceKeys.CheckBoxStyleKey}}" />
+                        <Button DockPanel.Dock="Right" Content="Commit" Command="{Binding CommitCommand}"
+                                Padding="16,2" MinWidth="80"
+                                Style="{DynamicResource {x:Static vsshell:VsResourceKeys.ButtonStyleKey}}" />
+                    </DockPanel>
+                    <Border DockPanel.Dock="Top" BorderThickness="0,1,0,0"
+                            BorderBrush="{DynamicResource {x:Static platformUI:EnvironmentColors.ToolWindowBorderBrushKey}}" />
                     <DockPanel DockPanel.Dock="Top" LastChildFill="False">
                         <TextBlock DockPanel.Dock="Left" Text="変更ファイル" Style="{StaticResource PaneHeaderStyle}" />
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,4,0">
@@ -519,30 +539,6 @@
                                    Foreground="{DynamicResource {x:Static platformUI:TreeViewColors.BackgroundTextBrushKey}}"
                                    Visibility="{Binding HasDiffMessage, Converter={StaticResource BoolToVisibility}}" />
                     </Grid>
-                </DockPanel>
-            </Border>
-
-            <GridSplitter Grid.Column="3" Style="{StaticResource SplitterStyle}" />
-
-            <Border Grid.Column="4" Style="{StaticResource PaneBorderStyle}">
-                <DockPanel Margin="0,0,0,6">
-                    <TextBlock DockPanel.Dock="Top" Text="コミットメッセージ" Style="{StaticResource PaneHeaderStyle}" />
-                    <DockPanel DockPanel.Dock="Bottom" Margin="6,6,6,0" LastChildFill="False">
-                        <CheckBox DockPanel.Dock="Left" Content="Amend(直前のコミットを修正)" VerticalAlignment="Center"
-                                  IsChecked="{Binding IsAmend}"
-                                  Foreground="{DynamicResource {x:Static platformUI:TreeViewColors.BackgroundTextBrushKey}}"
-                                  Style="{DynamicResource {x:Static vsshell:VsResourceKeys.CheckBoxStyleKey}}" />
-                        <Button DockPanel.Dock="Right" Content="Commit" Command="{Binding CommitCommand}"
-                                Padding="16,2" MinWidth="80"
-                                Style="{DynamicResource {x:Static vsshell:VsResourceKeys.ButtonStyleKey}}" />
-                    </DockPanel>
-                    <TextBox Margin="6,0"
-                             Text="{Binding CommitMessage, UpdateSourceTrigger=PropertyChanged}"
-                             AcceptsReturn="True"
-                             TextWrapping="Wrap"
-                             VerticalScrollBarVisibility="Auto"
-                             VerticalContentAlignment="Top"
-                             Style="{DynamicResource {x:Static vsshell:VsResourceKeys.TextBoxStyleKey}}" />
                 </DockPanel>
             </Border>
         </Grid>
