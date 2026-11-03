@@ -367,10 +367,28 @@
                              VerticalContentAlignment="Top"
                              Style="{DynamicResource {x:Static vsshell:VsResourceKeys.TextBoxStyleKey}}" />
                     <DockPanel DockPanel.Dock="Top" Margin="6,6,6,6" LastChildFill="False">
-                        <CheckBox DockPanel.Dock="Left" Content="Amend(直前のコミットを修正)" VerticalAlignment="Center"
+                        <CheckBox DockPanel.Dock="Left" Content="Amend" VerticalAlignment="Center"
                                   IsChecked="{Binding IsAmend}"
+                                  ToolTip="右のドロップダウンで選んだコミットを修正します"
                                   Foreground="{DynamicResource {x:Static platformUI:TreeViewColors.BackgroundTextBrushKey}}"
                                   Style="{DynamicResource {x:Static vsshell:VsResourceKeys.CheckBoxStyleKey}}" />
+                        <!-- Amend の対象: 既定は直前のコミット。現在のブランチの過去のコミットも選べる -->
+                        <ComboBox DockPanel.Dock="Left" Margin="6,0,0,0" MinWidth="110" MaxWidth="260" VerticalAlignment="Center"
+                                  ItemsSource="{Binding AmendTargets}"
+                                  SelectedItem="{Binding SelectedAmendTarget}"
+                                  ToolTip="修正するコミットを選びます"
+                                  Style="{DynamicResource {x:Static vsshell:VsResourceKeys.ComboBoxStyleKey}}">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal" ToolTip="{Binding Commit.Subject}">
+                                        <TextBlock Text="{Binding ShortSha}" FontFamily="Consolas" Opacity="0.7" Margin="0,0,6,0" />
+                                        <TextBlock Text="(last commit) " Opacity="0.7"
+                                                   Visibility="{Binding IsHead, Converter={StaticResource BoolToVisibility}}" />
+                                        <TextBlock Text="{Binding Commit.Subject}" TextTrimming="CharacterEllipsis" MaxWidth="320" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
                         <Button DockPanel.Dock="Right" Content="Commit" Command="{Binding CommitCommand}"
                                 Padding="16,2" MinWidth="80"
                                 Style="{DynamicResource {x:Static vsshell:VsResourceKeys.ButtonStyleKey}}" />

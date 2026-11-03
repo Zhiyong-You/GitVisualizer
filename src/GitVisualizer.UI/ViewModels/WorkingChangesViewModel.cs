@@ -15,7 +15,10 @@ namespace GitVisualizer.UI.ViewModels;
 /// <summary>下部ペインの作業中の変更とコミット入力。</summary>
 public sealed partial class WorkingChangesViewModel : ObservableObject
 {
+    private const int AmendCandidateCount = 50;
+
     private readonly ICommitService _commitService;
+    private readonly IHistoryService _historyService;
     private readonly IDiffViewerService _diffViewerService;
     private readonly INotificationService _notificationService;
     private readonly IDialogService _dialogService;
@@ -31,6 +34,9 @@ public sealed partial class WorkingChangesViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _isAmend;
+
+    [ObservableProperty]
+    private AmendTarget? _selectedAmendTarget;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ApplyLinesLabel))]
@@ -62,13 +68,15 @@ public sealed partial class WorkingChangesViewModel : ObservableObject
 
     /// <summary><see cref="WorkingChangesViewModel"/> を初期化します。</summary>
     /// <param name="commitService">コミットサービス。</param>
+    /// <param name="historyService">履歴サービス(Amend の対象にできるコミットの取得と、過去のコミットの修正に使う)。</param>
     /// <param name="diffViewerService">差分の表示先。</param>
     /// <param name="notificationService">通知サービス。</param>
-    /// <param name="dialogService">ダイアログサービス(変更の破棄の確認に使う)。</param>
+    /// <param name="dialogService">ダイアログサービス(変更の破棄・履歴の書き換えの確認に使う)。</param>
     /// <param name="context">操作対象リポジトリと操作の実行手順。</param>
-    public WorkingChangesViewModel(ICommitService commitService, IDiffViewerService diffViewerService, INotificationService notificationService, IDialogService dialogService, GitOperationContext context)
+    public WorkingChangesViewModel(ICommitService commitService, IHistoryService historyService, IDiffViewerService diffViewerService, INotificationService notificationService, IDialogService dialogService, GitOperationContext context)
     {
         _commitService = commitService;
+        _historyService = historyService;
         _diffViewerService = diffViewerService;
         _notificationService = notificationService;
         _dialogService = dialogService;
@@ -78,8 +86,8 @@ public sealed partial class WorkingChangesViewModel : ObservableObject
     /// <summary>作業ツリーとインデックスの変更ファイル。</summary>
     public ObservableCollection<FileChange> Changes { get; } = new();
 
-    /// <summary>HEAD のコミットメッセージ(Amend にしたときの初期値)。<see cref="MainViewModel"/> が設定する。</summary>
-    public string? HeadCommitMessage { get; set; }
+    /// <summary>Amend の対象にできるコミット(現在のブランチの新しい順。先頭が HEAD)。</summary>
+    public ObservableCollection<AmendTarget> AmendTargets { get; } = new();
 
     /// <summary>差分ペインのボタンの文言(ステージ済みのファイルなら解除)。</summary>
     public string ApplyLinesLabel => CurrentPatch?.Change.IsStaged == true ? "選択行をステージ解除" : "選択行をステージ";
@@ -92,6 +100,8 @@ public sealed partial class WorkingChangesViewModel : ObservableObject
     {
         Changes.Clear();
         SelectedChange = null;
+        AmendTargets.Clear();
+        SelectedAmendTarget = null;
     }
 
     partial void OnSelectedChangeChanged(FileChange? value)
@@ -231,11 +241,40 @@ public sealed partial class WorkingChangesViewModel : ObservableObject
 
     partial void OnIsAmendChanged(bool value)
     {
-        // Amend にしたとき、メッセージが空なら直前のコミットのメッセージを入れる
-        if (value && string.IsNullOrWhiteSpace(CommitMessage) && HeadCommitMessage != null)
+        // Amend にしたとき、メッセージが空なら対象のコミットのメッセージを入れる
+        if (value && string.IsNullOrWhiteSpace(CommitMessage) && SelectedAmendTarget != null)
         {
-            CommitMessage = HeadCommitMessage.Replace("\n", "\r\n");
+            CommitMessage = SelectedAmendTarget.EditableMessage;
         }
+    }
+
+    partial void OnSelectedAmendTargetChanged(AmendTarget? oldValue, AmendTarget? newValue)
+    {
+        // 対象を切り替えたとき、メッセージが空か前の対象のメッセージのままなら、新しい対象のメッセージに入れ替える
+        if (!IsAmend || newValue == null || ReferenceEquals(oldValue, newValue))
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(CommitMessage) || (oldValue != null && CommitMessage == oldValue.EditableMessage))
+        {
+            CommitMessage = newValue.EditableMessage;
+        }
+    }
+
+    private async Task RefreshAmendTargetsAsync(string path, CancellationToken ct)
+    {
+        IReadOnlyList<CommitInfo> commits = await _historyService.GetLogAsync(path, AmendCandidateCount, new[] { "HEAD" }, ct);
+        string? selectedSha = SelectedAmendTarget?.Commit.Sha;
+
+        AmendTargets.Clear();
+        for (int i = 0; i < commits.Count; i++)
+        {
+            AmendTargets.Add(new AmendTarget(commits[i], isHead: i == 0));
+        }
+
+        // 選んでいたコミットが残っていれば選び直す(書き換えで SHA が変わったときは直前のコミットに戻す)
+        SelectedAmendTarget = AmendTargets.FirstOrDefault(t => t.Commit.Sha == selectedSha) ?? AmendTargets.FirstOrDefault();
     }
 
     [RelayCommand]
@@ -268,6 +307,8 @@ public sealed partial class WorkingChangesViewModel : ObservableObject
                 SelectedChange = Changes.FirstOrDefault(c => c.Path == previous.Path && c.IsStaged == previous.IsStaged)
                     ?? Changes.FirstOrDefault(c => c.Path == previous.Path);
             }
+
+            await RefreshAmendTargetsAsync(path, ct);
         }
         catch (OperationCanceledException)
         {
@@ -370,11 +411,34 @@ public sealed partial class WorkingChangesViewModel : ObservableObject
 
         string message = CommitMessage;
         bool amend = IsAmend;
-        bool success = await _context.RunAsync(amend ? "コミット (Amend)" : "コミット", (path, token) => _commitService.CommitAsync(path, message, amend, token), ct);
+        AmendTarget? target = amend ? SelectedAmendTarget : null;
+        bool success;
+        if (target != null && !target.IsHead)
+        {
+            if (!await _dialogService.ConfirmAsync(
+                    $"コミット {target.ShortSha}「{target.Commit.Subject}」を修正します。\n\n"
+                    + "ステージ済みの変更をこのコミットに追加し、メッセージを置き換えます。"
+                    + "このコミット以降の履歴が書き換わるため、プッシュ済みの場合は強制プッシュが必要になります。\n\n続行しますか?",
+                    ct))
+            {
+                return;
+            }
+
+            success = await _context.RunAsync(
+                $"コミット (Amend {target.ShortSha})",
+                (path, token) => _historyService.AmendCommitAsync(path, target.Commit.Sha, message, token),
+                ct);
+        }
+        else
+        {
+            success = await _context.RunAsync(amend ? "コミット (Amend)" : "コミット", (path, token) => _commitService.CommitAsync(path, message, amend, token), ct);
+        }
+
         if (success)
         {
             CommitMessage = string.Empty;
             IsAmend = false;
+            SelectedAmendTarget = AmendTargets.FirstOrDefault();
         }
     }
 

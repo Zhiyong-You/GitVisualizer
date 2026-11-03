@@ -62,7 +62,7 @@ public sealed partial class MainViewModel : ObservableObject
         BranchTree = new BranchTreeViewModel(branchService, dialogService, _context);
         CommitHistory = new CommitHistoryViewModel(historyService, graphBuilder, dialogService, _context);
         CommitDetail = new CommitDetailViewModel(historyService, diffViewerService, _context);
-        WorkingChanges = new WorkingChangesViewModel(commitService, diffViewerService, notificationService, dialogService, _context);
+        WorkingChanges = new WorkingChangesViewModel(commitService, historyService, diffViewerService, notificationService, dialogService, _context);
         OperationState = new OperationStateViewModel(historyService, repositoryStateService, dialogService, _context);
 
         _context.State = OperationState;
@@ -177,8 +177,6 @@ public sealed partial class MainViewModel : ObservableObject
             CommitHistory.UpdateViewBranch(BranchTree.LocalBranches.Concat(BranchTree.RemoteBranches));
 
             await CommitHistory.RefreshCommand.ExecuteAsync(null);
-            CommitInfo? head = CommitHistory.HeadCommit;
-            WorkingChanges.HeadCommitMessage = head == null ? null : head.Body.Length == 0 ? head.Subject : head.Subject + "\n\n" + head.Body;
 
             await WorkingChanges.RefreshCommand.ExecuteAsync(null);
             await OperationState.RefreshCommand.ExecuteAsync(null);

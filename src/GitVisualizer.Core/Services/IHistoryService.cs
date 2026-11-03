@@ -60,6 +60,17 @@ public interface IHistoryService
     /// <returns>git の実行結果。</returns>
     Task<GitResult> RewordAsync(string repositoryPath, string commitSha, string newMessage, CancellationToken ct = default);
 
+    /// <summary>
+    /// 指定コミットを修正(Amend)します。ステージ済みの変更をそのコミットに追加し、メッセージを置き換えます。
+    /// HEAD なら <c>commit --amend</c>、過去のコミットなら fixup コミットを作って対話的リベース(--autosquash)で統合します。
+    /// </summary>
+    /// <param name="repositoryPath">リポジトリのルートパス。</param>
+    /// <param name="commitSha">修正対象のコミット SHA(現在のブランチに含まれること)。</param>
+    /// <param name="newMessage">新しいコミットメッセージ。</param>
+    /// <param name="ct">キャンセルトークン。</param>
+    /// <returns>git の実行結果。競合で停止した場合も失敗として返ります。</returns>
+    Task<GitResult> AmendCommitAsync(string repositoryPath, string commitSha, string newMessage, CancellationToken ct = default);
+
     /// <summary>中断中の操作(rebase / cherry-pick)を続行します。</summary>
     /// <param name="repositoryPath">リポジトリのルートパス。</param>
     /// <param name="ct">キャンセルトークン。</param>

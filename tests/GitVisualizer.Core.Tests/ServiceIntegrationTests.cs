@@ -426,6 +426,42 @@ public class ServiceIntegrationTests
         Assert.Equal("dirty", File.ReadAllText(Path.Combine(repo.Path, "c.txt")));
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task HistoryService_選んだコミットにステージ済みの変更を追加してAmendする(int index)
+    {
+        Assert.True(File.Exists(EditorHelperPath), "GitEditorHelper.exe がテストの出力フォルダにありません。");
+
+        using var repo = await TempRepository.CreateAsync();
+        string[] shas =
+        {
+            await repo.CommitFileAsync("a.txt", "a", "root"),
+            await repo.CommitFileAsync("b.txt", "b", "second"),
+            await repo.CommitFileAsync("c.txt", "c", "third"),
+        };
+        repo.WriteFile("added.txt", "added");
+        await repo.GitAsync("add", "added.txt");
+        repo.WriteFile("c.txt", "dirty");
+
+        GitResult result = await CreateHistoryService(repo).AmendCommitAsync(repo.Path, shas[index], "修正後\n\n本文");
+
+        Assert.True(result.IsSuccess, result.StandardError);
+        string subjects = (await repo.GitAsync("log", "--format=%s", "--reverse")).StandardOutput;
+        string[] expected = { "root", "second", "third" };
+        expected[index] = "修正後";
+        Assert.Equal(expected, subjects.Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries));
+
+        // ステージ済みの変更は選んだコミットに入り、fixup コミットは残らない
+        string files = (await repo.GitAsync("show", "--format=", "--name-only", $"HEAD~{2 - index}")).StandardOutput;
+        Assert.Contains("added.txt", files);
+        Assert.Empty((await repo.GitAsync("diff", "--cached", "--name-only")).StandardOutput.Trim());
+
+        // 未ステージの変更は --autostash で戻る
+        Assert.Equal("dirty", File.ReadAllText(Path.Combine(repo.Path, "c.txt")));
+    }
+
     [Fact]
     public async Task HistoryService_チェリーピックの競合を検出して中止できる()
     {

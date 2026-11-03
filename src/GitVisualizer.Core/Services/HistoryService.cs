@@ -258,6 +258,90 @@ public sealed class HistoryService : IHistoryService
     }
 
     /// <inheritdoc/>
+    public async Task<GitResult> AmendCommitAsync(string repositoryPath, string commitSha, string newMessage, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(newMessage))
+        {
+            return GitResults.Failure("コミットメッセージが空です。");
+        }
+
+        string? head = await RevParseAsync(repositoryPath, "HEAD", ct).ConfigureAwait(false);
+        string? target = await RevParseAsync(repositoryPath, commitSha + "^{commit}", ct).ConfigureAwait(false);
+        if (head == null || target == null)
+        {
+            return GitResults.Failure($"コミット {commitSha} が見つかりません。");
+        }
+
+        if (target == head)
+        {
+            // 直前のコミットは通常の --amend(ステージ済みの変更も含める)
+            using var headMessage = new TempMessageFile(newMessage);
+            return await _runner.RunAsync(repositoryPath, new[] { "commit", "--amend", "-F", headMessage.Path }, ct: ct).ConfigureAwait(false);
+        }
+
+        // ステージ済みの変更がなければ、メッセージの変更だけ
+        GitResult staged = await _runner.RunAsync(repositoryPath, new[] { "diff", "--cached", "--quiet" }, ct: ct).ConfigureAwait(false);
+        if (staged.ExitCode == 0)
+        {
+            return await RewordAsync(repositoryPath, target, newMessage, ct).ConfigureAwait(false);
+        }
+
+        if (staged.ExitCode != 1)
+        {
+            return staged;
+        }
+
+        GitResult ancestor = await _runner.RunAsync(repositoryPath, new[] { "merge-base", "--is-ancestor", target, "HEAD" }, ct: ct).ConfigureAwait(false);
+        if (!ancestor.IsSuccess)
+        {
+            return GitResults.Failure("選択したコミットは現在のブランチに含まれていないため、修正できません。");
+        }
+
+        GitResult parents = await _runner.RunAsync(repositoryPath, new[] { "rev-list", "--parents", "-n", "1", target }, ct: ct).ConfigureAwait(false);
+        string[] parentShas = parents.StandardOutput.Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        if (parentShas.Length > 2)
+        {
+            return GitResults.Failure("マージコミットにはステージ済みの変更を追加できません。メッセージだけを変更する場合はステージを解除してください。");
+        }
+
+        bool isRoot = parentShas.Length <= 1;
+
+        // ステージ済みの変更を fixup コミットにし、--autosquash で対象コミットに統合する。
+        // GitEditorHelper が対象の行を reword に変えて新しいメッセージを書き込む(後続の fixup はそのメッセージを保つ)
+        GitResult fixup = await _runner.RunAsync(repositoryPath, new[] { "commit", "--no-verify", "--fixup=" + target }, ct: ct).ConfigureAwait(false);
+        if (!fixup.IsSuccess)
+        {
+            return fixup;
+        }
+
+        string? fixupSha = await RevParseAsync(repositoryPath, "HEAD", ct).ConfigureAwait(false);
+
+        using var messageFile = new TempMessageFile(newMessage);
+        string editor = "\"" + _editorHelperPath.Replace('\\', '/') + "\"";
+        var environment = new Dictionary<string, string>
+        {
+            ["GIT_SEQUENCE_EDITOR"] = editor,
+            ["GIT_EDITOR"] = editor,
+            [RewordShaEnvironmentVariable] = target,
+            [MessageFileEnvironmentVariable] = messageFile.Path,
+        };
+
+        var arguments = new List<string> { "rebase", "--interactive", "--autosquash", "--autostash", "--rebase-merges" };
+        arguments.Add(isRoot ? "--root" : target + "^");
+
+        GitResult result = await _runner.RunAsync(repositoryPath, arguments, environment, ct: CancellationToken.None).ConfigureAwait(false);
+        if (!result.IsSuccess
+            && await _state.GetOperationAsync(repositoryPath, CancellationToken.None).ConfigureAwait(false) == RepositoryOperation.None
+            && await RevParseAsync(repositoryPath, "HEAD", CancellationToken.None).ConfigureAwait(false) == fixupSha)
+        {
+            // リベースが始まらなかったときは fixup コミットを取り消し、ステージ済みの状態に戻す(競合で停止した場合は続行 / 中止に任せる)
+            await _runner.RunAsync(repositoryPath, new[] { "reset", "--soft", "HEAD~1" }, ct: CancellationToken.None).ConfigureAwait(false);
+        }
+
+        return result;
+    }
+
+    /// <inheritdoc/>
     public async Task<GitResult> ContinueAsync(string repositoryPath, CancellationToken ct = default)
     {
         // --continue で開くエディタは、GitProcessRunner の既定(GIT_EDITOR=true)で抑止される
