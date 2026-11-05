@@ -12,11 +12,13 @@ internal static class Program
     private const string Caption = "Git Visualizer セットアップ";
     private const string VsixResourceName = "GitVisualizer.vsix";
 
+    private const string MSBuildProcessName = "MSBuild";
+
     // VSIXInstaller が終了を待つプロセス(MSBuild は VS を閉じた後もしばらく残ることがある)
     private static readonly (string ProcessName, string DisplayName)[] BlockingProcesses =
     {
         ("devenv", "Visual Studio (devenv.exe)"),
-        ("MSBuild", "MSBuild.exe"),
+        (MSBuildProcessName, "MSBuild.exe"),
     };
 
     [STAThread]
@@ -46,17 +48,34 @@ internal static class Program
     {
         while (true)
         {
-            string[] running = BlockingProcesses.Where(p => IsRunning(p.ProcessName)).Select(p => p.DisplayName).ToArray();
-            if (running.Length == 0)
+            var running = BlockingProcesses.Where(p => IsRunning(p.ProcessName)).ToList();
+            if (running.Count == 0)
             {
                 return true;
             }
 
+            // VS を閉じた後に残る MSBuild.exe は、VS がビルドに使った待機中のプロセスなので、ユーザーに確認して終了させる
+            if (running.All(p => p.ProcessName == MSBuildProcessName))
+            {
+                if (MessageBox.Show(
+                        "Visual Studio は閉じられていますが、Visual Studio がビルドに使った MSBuild.exe が残っているため、インストールを開始できません。\n\n"
+                        + "OK を押すと MSBuild.exe を終了してインストールを続けます。\n"
+                        + "(コマンドラインでビルド中の場合は、終わってから OK を押してください)",
+                        Caption,
+                        MessageBoxButtons.OKCancel,
+                        MessageBoxIcon.Warning) != DialogResult.OK)
+                {
+                    return false;
+                }
+
+                KillAll(MSBuildProcessName);
+                continue;
+            }
+
             DialogResult answer = MessageBox.Show(
                 "次のプロセスが起動しているため、インストールを開始できません。\n\n"
-                + string.Join("\n", running.Select(name => "・" + name))
-                + "\n\nすべて閉じてから OK を押してください。\n"
-                + "(Visual Studio を閉じた後も MSBuild.exe が残っている場合は、しばらく待つか、タスク マネージャーで終了してください)",
+                + string.Join("\n", running.Select(p => "・" + p.DisplayName))
+                + "\n\nすべて閉じてから OK を押してください。",
                 Caption,
                 MessageBoxButtons.OKCancel,
                 MessageBoxIcon.Warning);
@@ -76,6 +95,25 @@ internal static class Program
         }
 
         return processes.Length != 0;
+    }
+
+    private static void KillAll(string processName)
+    {
+        foreach (Process process in Process.GetProcessesByName(processName))
+        {
+            using (process)
+            {
+                try
+                {
+                    process.Kill();
+                    process.WaitForExit(5000);
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
+                {
+                    // 既に終了している、または権限がない(管理者で実行された MSBuild など)。次の確認でもう一度案内する
+                }
+            }
+        }
     }
 
     /// <summary>埋め込んだ .vsix を一時フォルダに書き出します。</summary>

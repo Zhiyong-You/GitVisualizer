@@ -58,7 +58,7 @@ msbuild GitVisualizer.sln /restore /p:Configuration=Debug
 
 ## リリース
 
-- リリースごとに `source.extension.vsixmanifest` の `Version` を上げる。上がっていれば `.vsix` のダブルクリックで上書き更新でき、アンインストールは不要(同じ Version だと「インストール済み」となり更新できない)
+- リリースごとに `source.extension.vsixmanifest` の `Version` を上げる。上がっていれば `.vsix` のダブルクリックで上書き更新でき、アンインストールは不要(同じ Version だと「インストール済み」となり更新できない)。manifest の変更だけでは差分ビルドで `.vsix` が作り直されないので、Version を上げたらソリューションをリビルドする
 - 配布物は `src\GitVisualizerSetup\bin\<構成>\net472\GitVisualizerSetup.exe` の 1 ファイル(`.vsix` を埋め込んでいる)。ソリューションごと VS / msbuild でビルドすると作られる
 - インストール・更新は Visual Studio をすべて閉じてから行う必要がある(起動中の VS や、VS を閉じた後に残る MSBuild.exe が拡張機能のファイルを使っているため)。VSIX インストーラーはこの間、理由を表示せずに待ち続けるので、次の 2 か所で案内している
   - 初回インストール: `GitVisualizerSetup.exe` が、devenv.exe / MSBuild.exe が残っていれば閉じるよう案内してからインストーラーを開く
