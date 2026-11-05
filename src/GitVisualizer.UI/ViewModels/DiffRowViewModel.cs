@@ -1,5 +1,7 @@
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using GitVisualizer.Core.Models;
 
 namespace GitVisualizer.UI.ViewModels;
@@ -24,8 +26,13 @@ public enum DiffRowKind
 }
 
 /// <summary>差分ペインの 1 行(ハンクヘッダー、文脈行、または変更前後の行の組)。</summary>
-public sealed class DiffRowViewModel
+public sealed class DiffRowViewModel : INotifyPropertyChanged
 {
+    // ハンクヘッダーなら、同じハンクの変更行(ヘッダーのチェックはこれらをまとめて切り替える)
+    private readonly List<DiffRowViewModel> _hunkRows = new();
+    private DiffRowViewModel? _header;
+    private bool _isChecked;
+
     private DiffRowViewModel(DiffHunk hunk, DiffLine? oldLine, DiffLine? newLine, bool isStaged)
     {
         Hunk = hunk;
@@ -47,7 +54,8 @@ public sealed class DiffRowViewModel
         var rows = new List<DiffRowViewModel>();
         foreach (DiffHunk hunk in patch.Hunks)
         {
-            rows.Add(new DiffRowViewModel(hunk, null, null, patch.Change.IsStaged));
+            var header = new DiffRowViewModel(hunk, null, null, patch.Change.IsStaged);
+            rows.Add(header);
             int index = 0;
             while (index < hunk.Lines.Count)
             {
@@ -69,17 +77,62 @@ public sealed class DiffRowViewModel
 
                 for (int i = 0; i < System.Math.Max(removed.Count, added.Count); i++)
                 {
-                    rows.Add(new DiffRowViewModel(
+                    var row = new DiffRowViewModel(
                         hunk,
                         i < removed.Count ? removed[i] : null,
                         i < added.Count ? added[i] : null,
-                        patch.Change.IsStaged));
+                        patch.Change.IsStaged) { _header = header };
+                    header._hunkRows.Add(row);
+                    rows.Add(row);
                 }
             }
         }
 
         return rows;
     }
+
+    /// <inheritdoc/>
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    /// <summary>
+    /// ステージする行として選ばれているかどうか(チェックしただけでは git を実行しない)。
+    /// ハンクヘッダーは、ハンク内の変更行がすべてチェックされていれば <see langword="true"/> で、設定するとハンク内の行をまとめて切り替える。
+    /// </summary>
+    public bool IsChecked
+    {
+        get => Kind == DiffRowKind.HunkHeader ? _hunkRows.Count != 0 && _hunkRows.All(r => r._isChecked) : _isChecked;
+        set
+        {
+            if (Kind == DiffRowKind.HunkHeader)
+            {
+                foreach (DiffRowViewModel row in _hunkRows)
+                {
+                    row.IsChecked = value;
+                }
+
+                // 変わった行がなくても、クリックで切り替わったチェックボックスを実際の状態に戻す
+                OnPropertyChanged();
+                return;
+            }
+
+            if (_isChecked == value || !HasChanges)
+            {
+                return;
+            }
+
+            _isChecked = value;
+            OnPropertyChanged();
+            _header?.OnPropertyChanged(nameof(IsChecked));
+        }
+    }
+
+    /// <summary>行のチェックボックスを表示するかどうか(ステージ済みの差分では行単位の操作をしない)。</summary>
+    public bool IsCheckable => !IsStaged && (HasChanges || Kind == DiffRowKind.HunkHeader);
+
+    /// <summary>再読み込みの前後で同じ行を見分けるためのキー(ハンクヘッダーは <see langword="null"/>)。</summary>
+    public string? Key => HasChanges
+        ? $"{OldLine?.OldLineNumber}:{NewLine?.NewLineNumber}:{OldLine?.Text}\n{NewLine?.Text}"
+        : null;
 
     /// <summary>行が属するハンク。</summary>
     public DiffHunk Hunk { get; }
@@ -121,4 +174,7 @@ public sealed class DiffRowViewModel
     public IEnumerable<DiffLine> ChangeLines => Kind == DiffRowKind.HunkHeader
         ? Hunk.Lines.Where(l => l.IsChange)
         : new[] { OldLine, NewLine }.OfType<DiffLine>().Where(l => l.IsChange);
+
+    private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 }

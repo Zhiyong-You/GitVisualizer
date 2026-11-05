@@ -39,24 +39,17 @@ public sealed partial class WorkingChangesViewModel : ObservableObject
     private AmendTarget? _selectedAmendTarget;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ApplyLinesLabel))]
-    [NotifyCanExecuteChangedFor(nameof(ApplySelectedLinesCommand))]
-    [NotifyCanExecuteChangedFor(nameof(ToggleDiffRowCommand))]
+    [NotifyPropertyChangedFor(nameof(CanStageLines))]
+    [NotifyCanExecuteChangedFor(nameof(StageCheckedLinesCommand))]
     private FilePatch? _currentPatch;
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(ApplySelectedLinesCommand))]
-    [NotifyCanExecuteChangedFor(nameof(ToggleDiffRowCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StageCheckedLinesCommand))]
     private IReadOnlyList<DiffRowViewModel> _diffRows = Array.Empty<DiffRowViewModel>();
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(ApplySelectedLinesCommand))]
-    [NotifyCanExecuteChangedFor(nameof(ToggleDiffRowCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StageCheckedLinesCommand))]
     private bool _isApplyingDiff;
-
-    [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(ApplySelectedLinesCommand))]
-    private IReadOnlyList<DiffRowViewModel> _selectedDiffRows = Array.Empty<DiffRowViewModel>();
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasDiffMessage))]
@@ -89,8 +82,8 @@ public sealed partial class WorkingChangesViewModel : ObservableObject
     /// <summary>Amend の対象にできるコミット(現在のブランチの新しい順。先頭が HEAD)。</summary>
     public ObservableCollection<AmendTarget> AmendTargets { get; } = new();
 
-    /// <summary>差分ペインのボタンの文言(ステージ済みのファイルなら解除)。</summary>
-    public string ApplyLinesLabel => CurrentPatch?.Change.IsStaged == true ? "選択行をステージ解除" : "選択行をステージ";
+    /// <summary>表示中の差分を行単位でステージできるかどうか(未ステージの差分だけ。ステージ解除はファイル単位で行う)。</summary>
+    public bool CanStageLines => CurrentPatch is { CanApplyLines: true, Change.IsStaged: false };
 
     /// <summary>差分の代わりに表示するメッセージがあるかどうか。</summary>
     public bool HasDiffMessage => DiffMessage.Length != 0;
@@ -140,8 +133,13 @@ public sealed partial class WorkingChangesViewModel : ObservableObject
         var cts = new CancellationTokenSource();
         _diffLoadCts = cts;
 
+        // 操作や自動更新で同じ差分を読み直したときにチェックが消えないよう、チェック中の行を覚えておく
+        HashSet<string?> checkedKeys = CurrentPatch != null && change != null
+            && CurrentPatch.Change.Path == change.Path && CurrentPatch.Change.IsStaged == change.IsStaged
+            ? new HashSet<string?>(DiffRows.Where(r => r.IsChecked).Select(r => r.Key))
+            : new HashSet<string?>();
+
         CurrentPatch = null;
-        SelectedDiffRows = Array.Empty<DiffRowViewModel>();
         DiffRows = Array.Empty<DiffRowViewModel>();
 
         string? path = _context.RepositoryPath;
@@ -193,44 +191,47 @@ public sealed partial class WorkingChangesViewModel : ObservableObject
         }
 
         DiffMessage = string.Empty;
-        DiffRows = DiffRowViewModel.CreateRows(patch);
+        IReadOnlyList<DiffRowViewModel> rows = DiffRowViewModel.CreateRows(patch);
+        foreach (DiffRowViewModel row in rows)
+        {
+            // ハンクヘッダーのチェックは中の行から決まるので、変更行だけ戻す
+            if (row.Key != null)
+            {
+                row.IsChecked = checkedKeys.Contains(row.Key);
+            }
+
+            row.PropertyChanged += (_, _) => StageCheckedLinesCommand.NotifyCanExecuteChanged();
+        }
+
+        DiffRows = rows;
     }
 
-    private bool CanApplySelectedLines() => !IsApplyingDiff && CurrentPatch?.CanApplyLines == true && SelectedDiffRows.Any(r => DiffRows.Contains(r) && r.ChangeLines.Any());
+    private bool CanStageCheckedLines() => !IsApplyingDiff && CanStageLines && DiffRows.Any(r => r.HasChanges && r.IsChecked);
 
-    [RelayCommand(CanExecute = nameof(CanApplySelectedLines))]
-    private Task ApplySelectedLinesAsync(CancellationToken ct)
-    {
-        return ApplyLinesAsync(SelectedDiffRows.Where(DiffRows.Contains).SelectMany(r => r.ChangeLines).Distinct().ToList(), ct);
-    }
-
-    private bool CanToggleDiffRow(DiffRowViewModel? row) =>
-        !IsApplyingDiff && CurrentPatch?.CanApplyLines == true && row?.HasChanges == true && DiffRows.Contains(row);
-
-    [RelayCommand(CanExecute = nameof(CanToggleDiffRow))]
-    private Task ToggleDiffRowAsync(DiffRowViewModel? row, CancellationToken ct)
-    {
-        return CanToggleDiffRow(row) ? ApplyLinesAsync(row!.ChangeLines.ToList(), ct) : Task.CompletedTask;
-    }
-
-    private async Task ApplyLinesAsync(IReadOnlyCollection<DiffLine> lines, CancellationToken ct)
+    [RelayCommand(CanExecute = nameof(CanStageCheckedLines))]
+    private async Task StageCheckedLinesAsync(CancellationToken ct)
     {
         FilePatch? patch = CurrentPatch;
-        if (IsApplyingDiff || patch?.CanApplyLines != true || lines.Count == 0)
+        List<DiffRowViewModel> rows = DiffRows.Where(r => r.HasChanges && r.IsChecked).ToList();
+        if (!CanStageCheckedLines() || patch == null)
         {
             return;
+        }
+
+        List<DiffLine> lines = rows.SelectMany(r => r.ChangeLines).ToList();
+
+        // ステージした行は差分から消え、残りの行は行番号がずれる。読み直しで別の行にチェックが移らないよう先に外す
+        foreach (DiffRowViewModel row in rows)
+        {
+            row.IsChecked = false;
         }
 
         IsApplyingDiff = true;
         try
         {
-            bool isStaged = patch.Change.IsStaged;
-            string name = $"{(isStaged ? "選択行のステージ解除" : "選択行のステージ")} ({patch.Change.Path}, {lines.Count} 行)";
             await _context.RunAsync(
-                name,
-                (path, token) => isStaged
-                    ? _commitService.UnstageLinesAsync(path, patch, lines, token)
-                    : _commitService.StageLinesAsync(path, patch, lines, token),
+                $"チェックした行のステージ ({patch.Change.Path}, {lines.Count} 行)",
+                (path, token) => _commitService.StageLinesAsync(path, patch, lines, token),
                 ct);
         }
         finally

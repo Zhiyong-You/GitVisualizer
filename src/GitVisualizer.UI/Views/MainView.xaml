@@ -455,12 +455,13 @@
 
             <GridSplitter Grid.Column="1" Style="{StaticResource SplitterStyle}" />
 
-            <!-- 変更前後を1組として表示し、チェックで即時にステージ / 解除する -->
+            <!-- 変更前後を1組として表示する。チェックした行はボタンでまとめてステージする(チェックしただけでは git を実行しない) -->
             <Border Grid.Column="2" Style="{StaticResource PaneBorderStyle}">
                 <DockPanel>
                     <DockPanel DockPanel.Dock="Top" LastChildFill="True">
-                        <Button DockPanel.Dock="Right" Content="{Binding ApplyLinesLabel}" Command="{Binding ApplySelectedLinesCommand}"
-                                ToolTip="選択した変更前後の行の組をステージ / ステージ解除します(Shift / Ctrl で複数選択、@@ の行を選ぶとハンク全体)"
+                        <Button DockPanel.Dock="Right" Content="チェックした行をステージ" Command="{Binding StageCheckedLinesCommand}"
+                                Visibility="{Binding CanStageLines, Converter={StaticResource BoolToVisibility}}"
+                                ToolTip="チェックした変更前後の行の組をステージします(@@ の行のチェックでハンク全体)。ステージ解除はファイルのチェックボックスで行います"
                                 Margin="4,2,4,2" Padding="6,0" Style="{DynamicResource {x:Static vsshell:VsResourceKeys.ButtonStyleKey}}" />
                         <TextBlock Style="{StaticResource PaneHeaderStyle}" TextTrimming="CharacterEllipsis">
                             <Run Text="差分" /><Run Text="{Binding CurrentPatch.Change.Path, Mode=OneWay, StringFormat=' : {0}'}" />
@@ -478,18 +479,11 @@
                     <Grid>
                         <ListBox x:Name="DiffList"
                                  ItemsSource="{Binding DiffRows}"
-                                 SelectionMode="Extended"
-                                 SelectionChanged="OnDiffSelectionChanged"
                                  Style="{StaticResource ThemedListStyle}"
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                  VirtualizingPanel.IsVirtualizing="True"
                                  VirtualizingPanel.VirtualizationMode="Recycling"
                                  FontFamily="Consolas">
-                            <ListBox.ContextMenu>
-                                <ContextMenu>
-                                    <MenuItem Header="{Binding ApplyLinesLabel}" Command="{Binding ApplySelectedLinesCommand}" />
-                                </ContextMenu>
-                            </ListBox.ContextMenu>
                             <ListBox.ItemContainerStyle>
                                 <Style TargetType="ListBoxItem" BasedOn="{StaticResource ThemedListItemStyle}">
                                     <Setter Property="Padding" Value="0" />
@@ -508,11 +502,9 @@
                                             <ColumnDefinition Width="*" />
                                         </Grid.ColumnDefinitions>
                                         <CheckBox Grid.Column="0" Margin="3,1" VerticalAlignment="Top"
-                                                  IsChecked="{Binding IsStaged, Mode=OneWay}"
-                                                  Visibility="{Binding HasChanges, Converter={StaticResource BoolToVisibility}}"
-                                                  ToolTip="チェックでこの行の組をステージ、チェックを外すとステージ解除"
-                                                  Command="{Binding DataContext.ToggleDiffRowCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
-                                                  CommandParameter="{Binding}"
+                                                  IsChecked="{Binding IsChecked}"
+                                                  Visibility="{Binding IsCheckable, Converter={StaticResource BoolToVisibility}}"
+                                                  ToolTip="チェックした行は「チェックした行をステージ」でまとめてステージします"
                                                   Style="{DynamicResource {x:Static vsshell:VsResourceKeys.CheckBoxStyleKey}}" />
                                         <Border x:Name="OldBackground" Grid.Column="1" Padding="2,0">
                                             <Grid>

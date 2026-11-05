@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -44,6 +45,61 @@ public class DiffRowViewModelTests
         Assert.Equal(patch.ChangeLines.Count(), changes.Count);
         Assert.All(patch.ChangeLines, line => Assert.Single(changes, c => c == line));
         Assert.Equal(patch.Hunks[0].Lines.Where(l => l.IsChange), rows[0].ChangeLines);
+    }
+
+    private const string TwoHunkDiff =
+        "diff --git a/f.txt b/f.txt\n--- a/f.txt\n+++ b/f.txt\n" +
+        "@@ -1,3 +1,3 @@\n a\n-b\n+B\n-c\n" +
+        "@@ -10 +10 @@\n-z\n+Z\n";
+
+    private static IReadOnlyList<DiffRowViewModel> CreateRows(string diff, bool staged = false) =>
+        DiffRowViewModel.CreateRows(UnifiedDiffParser.Parse(
+            Encoding.UTF8.GetBytes(diff), new FileChange("f.txt", FileChangeKind.Modified, staged)));
+
+    [Fact]
+    public void ハンクヘッダーのチェックはそのハンクの変更行だけをまとめて切り替える()
+    {
+        var rows = CreateRows(TwoHunkDiff);
+        DiffRowViewModel header = rows[0];
+        var hunkRows = rows.Skip(1).TakeWhile(r => r.Kind != DiffRowKind.HunkHeader).Where(r => r.HasChanges).ToList();
+        DiffRowViewModel otherRow = rows.Last();
+
+        header.IsChecked = true;
+        Assert.All(hunkRows, r => Assert.True(r.IsChecked));
+        Assert.False(otherRow.IsChecked);
+
+        // 1 行でも外れたらヘッダーは外れ、全部入ればまた入る
+        hunkRows[0].IsChecked = false;
+        Assert.False(header.IsChecked);
+        hunkRows[0].IsChecked = true;
+        Assert.True(header.IsChecked);
+
+        header.IsChecked = false;
+        Assert.All(hunkRows, r => Assert.False(r.IsChecked));
+
+        // 文脈行はチェックできない
+        DiffRowViewModel context = rows[1];
+        context.IsChecked = true;
+        Assert.False(context.IsChecked);
+        Assert.False(context.IsCheckable);
+    }
+
+    [Fact]
+    public void ステージ済みの差分は行のチェックボックスを出さない()
+    {
+        Assert.All(CreateRows(TwoHunkDiff, staged: true), r => Assert.False(r.IsCheckable));
+        Assert.All(CreateRows(TwoHunkDiff).Where(r => r.HasChanges || r.Kind == DiffRowKind.HunkHeader), r => Assert.True(r.IsCheckable));
+    }
+
+    [Fact]
+    public void 読み直した同じ差分では同じ行が同じキーになり_行ごとに異なる()
+    {
+        var keys = CreateRows(TwoHunkDiff).Select(r => r.Key).ToList();
+        Assert.Equal(keys, CreateRows(TwoHunkDiff).Select(r => r.Key));
+
+        var changeKeys = keys.Where(k => k != null).ToList();
+        Assert.Equal(changeKeys.Count, changeKeys.Distinct().Count());
+        Assert.Equal(3, changeKeys.Count);
     }
 
     [Theory]
