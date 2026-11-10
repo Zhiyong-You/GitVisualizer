@@ -35,6 +35,20 @@ public interface ICommitService
     /// <returns>git の実行結果。</returns>
     Task<GitResult> RevertAsync(string repositoryPath, FileChange change, CancellationToken ct = default);
 
+    /// <summary>作業ツリーのファイルをごみ箱に移動します(インデックスは変更しない)。</summary>
+    /// <param name="repositoryPath">リポジトリのルートパス。</param>
+    /// <param name="change">対象の変更ファイル(作業ツリーに存在するもの)。</param>
+    /// <param name="ct">キャンセルトークン。</param>
+    /// <returns>実行結果。</returns>
+    Task<GitResult> DeleteFileAsync(string repositoryPath, FileChange change, CancellationToken ct = default);
+
+    /// <summary>リポジトリ直下の .gitignore にパターンを追加します。</summary>
+    /// <param name="repositoryPath">リポジトリのルートパス。</param>
+    /// <param name="pattern">追加するパターン(<see cref="Infrastructure.GitIgnoreFile"/> で作ったもの)。</param>
+    /// <param name="ct">キャンセルトークン。</param>
+    /// <returns>実行結果。</returns>
+    Task<GitResult> AddToGitIgnoreAsync(string repositoryPath, string pattern, CancellationToken ct = default);
+
     /// <summary>変更ファイルの diff を取得します(ステージ済みならインデックスと HEAD、未ステージなら作業ツリーとインデックスの差分)。</summary>
     /// <param name="repositoryPath">リポジトリのルートパス。</param>
     /// <param name="change">対象の変更ファイル。</param>

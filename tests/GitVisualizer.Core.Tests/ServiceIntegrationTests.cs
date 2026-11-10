@@ -645,4 +645,71 @@ public class ServiceIntegrationTests
 
         Directory.Delete(session, recursive: true);
     }
+
+    [Fact]
+    public async Task HistoryService_ファイルの履歴を名前変更をたどって取得する()
+    {
+        using var repo = await TempRepository.CreateAsync();
+        var service = CreateHistoryService(repo);
+        Assert.Empty(await service.GetFileHistoryAsync(repo.Path, "b.txt", 100));
+
+        string first = await repo.CommitFileAsync("a.txt", "a\n", "追加");
+        await repo.GitAsync("mv", "a.txt", "b.txt");
+        await repo.GitAsync("commit", "-q", "-m", "名前変更");
+        await repo.CommitFileAsync("other.txt", "x", "無関係");
+        string last = await repo.CommitFileAsync("b.txt", "a\nb\n", "変更");
+
+        var history = await service.GetFileHistoryAsync(repo.Path, "b.txt", 100);
+
+        Assert.Equal(new[] { "変更", "名前変更", "追加" }, history.Select(h => h.Commit.Subject));
+        Assert.Equal(last, history[0].Commit.Sha);
+        Assert.Equal(FileChangeKind.Modified, history[0].File.Kind);
+        Assert.Equal(FileChangeKind.Renamed, history[1].File.Kind);
+        Assert.Equal("a.txt", history[1].File.OldPath);
+        Assert.Equal(first, history[2].Commit.Sha);
+        Assert.Equal("a.txt", history[2].File.Path);
+        Assert.Equal(FileChangeKind.Added, history[2].File.Kind);
+
+        // そのコミット時点のパスで差分を取り出せる
+        FileDiff diff = await service.GetCommitFileDiffAsync(repo.Path, history[2].Commit, history[2].File);
+        Assert.Equal("a\n", File.ReadAllText(diff.RightFile));
+    }
+
+    [Fact]
+    public async Task HistoryService_注釈を一時ファイルに書き出す()
+    {
+        using var repo = await TempRepository.CreateAsync();
+        var service = CreateHistoryService(repo);
+        string sha = await repo.CommitFileAsync("a.txt", "line1\n", "1");
+        repo.WriteFile("a.txt", "line1\nline2\n");
+
+        string blame = await service.WriteBlameAsync(repo.Path, "a.txt");
+        string[] lines = File.ReadAllLines(blame);
+        Assert.Equal(2, lines.Length);
+        Assert.StartsWith(sha.Substring(0, 7), lines[0].TrimStart('^'));
+        Assert.StartsWith("00000000", lines[1]);
+        Assert.Contains("line2", lines[1]);
+
+        // 作業ツリーから削除したファイルは HEAD の内容で調べる
+        File.Delete(Path.Combine(repo.Path, "a.txt"));
+        Assert.Single(File.ReadAllLines(await service.WriteBlameAsync(repo.Path, "a.txt")));
+    }
+
+    [Fact]
+    public async Task CommitService_gitignoreに追加すると未追跡ファイルが一覧から消える()
+    {
+        using var repo = await TempRepository.CreateAsync();
+        var service = new CommitService(repo.Runner, repo.Parser);
+        repo.WriteFile(".gitignore", "bin/");
+        repo.WriteFile("dir/a b[1].txt", "x");
+        repo.WriteFile("dir/c.log", "x");
+        repo.WriteFile("d.log", "x");
+
+        Assert.True((await service.AddToGitIgnoreAsync(repo.Path, GitIgnoreFile.PatternForPath("dir/a b[1].txt"))).IsSuccess);
+        Assert.True((await service.AddToGitIgnoreAsync(repo.Path, GitIgnoreFile.PatternForExtension("dir/c.log")!)).IsSuccess);
+        Assert.True((await service.AddToGitIgnoreAsync(repo.Path, "*.log")).IsSuccess);
+
+        Assert.Equal("bin/\n/dir/a b\\[1].txt\n*.log\n", File.ReadAllText(Path.Combine(repo.Path, ".gitignore")));
+        Assert.Equal(new[] { ".gitignore" }, (await service.GetStatusAsync(repo.Path)).Select(c => c.Path));
+    }
 }

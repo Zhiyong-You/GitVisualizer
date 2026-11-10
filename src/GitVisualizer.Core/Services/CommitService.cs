@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using GitVisualizer.Core.Infrastructure;
 using GitVisualizer.Core.Models;
+using Microsoft.VisualBasic.FileIO;
 
 namespace GitVisualizer.Core.Services;
 
@@ -85,6 +86,35 @@ public sealed class CommitService : ICommitService
             : new List<string> { "restore", "--worktree", "--" };
         arguments.Add(change.Path);
         return _runner.RunAsync(repositoryPath, arguments, ct: ct);
+    }
+
+    /// <inheritdoc/>
+    public Task<GitResult> DeleteFileAsync(string repositoryPath, FileChange change, CancellationToken ct = default)
+    {
+        string fullPath = Path.Combine(repositoryPath, change.Path.Replace('/', Path.DirectorySeparatorChar));
+        return Task.Run(
+            () =>
+            {
+                if (!File.Exists(fullPath))
+                {
+                    return GitResults.Failure($"ファイルが見つかりません: {change.Path}");
+                }
+
+                // 誤って消しても戻せるよう、完全に削除せずごみ箱に移す
+                FileSystem.DeleteFile(fullPath, UIOption.OnlyErrorDialogs, RecycleOption.SendToRecycleBin, UICancelOption.ThrowException);
+                return new GitResult(0, $"{change.Path} をごみ箱に移動しました。", string.Empty);
+            },
+            ct);
+    }
+
+    /// <inheritdoc/>
+    public Task<GitResult> AddToGitIgnoreAsync(string repositoryPath, string pattern, CancellationToken ct = default)
+    {
+        return Task.Run(
+            () => GitIgnoreFile.Append(repositoryPath, pattern)
+                ? new GitResult(0, $".gitignore に {pattern} を追加しました。", string.Empty)
+                : new GitResult(0, $".gitignore には {pattern} がすでにあります。", string.Empty),
+            ct);
     }
 
     /// <inheritdoc/>

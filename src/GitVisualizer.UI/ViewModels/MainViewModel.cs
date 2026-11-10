@@ -38,6 +38,7 @@ public sealed partial class MainViewModel : ObservableObject
     /// <param name="repositoryLocator">操作対象リポジトリのロケーター。</param>
     /// <param name="dialogService">ダイアログサービス。</param>
     /// <param name="diffViewerService">差分表示サービス。</param>
+    /// <param name="documentService">ファイルを開くエディター。</param>
     /// <param name="notificationService">通知サービス。</param>
     /// <param name="logger">ログ出力先。</param>
     public MainViewModel(
@@ -50,6 +51,7 @@ public sealed partial class MainViewModel : ObservableObject
         IRepositoryLocator repositoryLocator,
         IDialogService dialogService,
         IDiffViewerService diffViewerService,
+        IDocumentService documentService,
         INotificationService notificationService,
         IOutputLogger logger)
     {
@@ -62,7 +64,7 @@ public sealed partial class MainViewModel : ObservableObject
         BranchTree = new BranchTreeViewModel(branchService, dialogService, _context);
         CommitHistory = new CommitHistoryViewModel(historyService, graphBuilder, dialogService, _context);
         CommitDetail = new CommitDetailViewModel(historyService, diffViewerService, _context);
-        WorkingChanges = new WorkingChangesViewModel(commitService, historyService, diffViewerService, notificationService, dialogService, _context);
+        WorkingChanges = new WorkingChangesViewModel(commitService, historyService, diffViewerService, documentService, notificationService, dialogService, _context);
         OperationState = new OperationStateViewModel(historyService, repositoryStateService, dialogService, _context);
 
         _context.State = OperationState;

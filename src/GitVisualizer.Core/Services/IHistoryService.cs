@@ -37,6 +37,21 @@ public interface IHistoryService
     /// <returns>差分表示用の一時ファイルと見出し。</returns>
     Task<FileDiff> GetCommitFileDiffAsync(string repositoryPath, CommitInfo commit, FileChange file, CancellationToken ct = default);
 
+    /// <summary>ファイルの履歴(そのファイルを変更したコミット)を、名前変更をたどって取得します。</summary>
+    /// <param name="repositoryPath">リポジトリのルートパス。</param>
+    /// <param name="path">対象ファイルの相対パス(現在のパス)。</param>
+    /// <param name="maxCount">最大取得件数。</param>
+    /// <param name="ct">キャンセルトークン。</param>
+    /// <returns>新しい順の履歴。コミットがなければ空。</returns>
+    Task<IReadOnlyList<FileHistoryEntry>> GetFileHistoryAsync(string repositoryPath, string path, int maxCount, CancellationToken ct = default);
+
+    /// <summary>ファイルの各行を最後に変更したコミット(git blame)を、読み取り専用の一時ファイルに書き出します。</summary>
+    /// <param name="repositoryPath">リポジトリのルートパス。</param>
+    /// <param name="path">対象ファイルの相対パス。作業ツリーになければ HEAD の内容で調べる。</param>
+    /// <param name="ct">キャンセルトークン。</param>
+    /// <returns>書き出したファイルのフルパス。</returns>
+    Task<string> WriteBlameAsync(string repositoryPath, string path, CancellationToken ct = default);
+
     /// <summary>現在のブランチをリベースします。</summary>
     /// <param name="repositoryPath">リポジトリのルートパス。</param>
     /// <param name="options">rebase 設定。</param>

@@ -7,6 +7,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- ファイルをごみ箱に移す(FileSystem.DeleteFile)ために使う -->
+    <Reference Include="Microsoft.VisualBasic" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="GitVisualizer.Core.Tests" />
   </ItemGroup>
 

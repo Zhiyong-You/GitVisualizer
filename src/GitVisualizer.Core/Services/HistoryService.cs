@@ -126,6 +126,57 @@ public sealed class HistoryService : IHistoryService
         return new FileDiff(leftFile, rightFile, leftLabel, rightLabel, $"{GetFileName(file.Path)} ({shortSha})");
     }
 
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<FileHistoryEntry>> GetFileHistoryAsync(string repositoryPath, string path, int maxCount, CancellationToken ct = default)
+    {
+        // コミットがまだないリポジトリでは git log がエラーになる
+        if (await RevParseAsync(repositoryPath, "HEAD", ct).ConfigureAwait(false) == null)
+        {
+            return Array.Empty<FileHistoryEntry>();
+        }
+
+        // 各コミットの先頭に \x01 を付け、コミット情報の後ろに --name-status でそのコミット時点のパスを出す
+        GitResult result = await _runner.RunAsync(
+            repositoryPath,
+            new[]
+            {
+                "log", "--follow", "-M", "--diff-merges=first-parent", "--name-status", "-z",
+                "-n", maxCount.ToString(CultureInfo.InvariantCulture), "--format=%x01" + LogFormat.Substring("--format=".Length),
+                "HEAD", "--", path,
+            },
+            ct: ct).ConfigureAwait(false);
+        if (!result.IsSuccess)
+        {
+            throw new InvalidOperationException(result.StandardError);
+        }
+
+        return _parser.ParseFileHistory(result.StandardOutput, path);
+    }
+
+    /// <inheritdoc/>
+    public async Task<string> WriteBlameAsync(string repositoryPath, string path, CancellationToken ct = default)
+    {
+        // 作業ツリーにあれば未コミットの行も含めて調べ、削除済みなら HEAD の内容で調べる
+        var arguments = new List<string> { "blame", "--date=short" };
+        if (!File.Exists(Path.Combine(repositoryPath, path.Replace('/', Path.DirectorySeparatorChar))))
+        {
+            arguments.Add("HEAD");
+        }
+
+        arguments.Add("--");
+        arguments.Add(path);
+
+        string destination = Path.Combine(DiffTempDirectory.CreateSessionDirectory(), GetFileName(path) + ".blame.txt");
+        GitResult result = await _runner.RunToFileAsync(repositoryPath, arguments, destination, ct).ConfigureAwait(false);
+        if (!result.IsSuccess)
+        {
+            throw new InvalidOperationException(result.StandardError);
+        }
+
+        File.SetAttributes(destination, FileAttributes.ReadOnly);
+        return destination;
+    }
+
     /// <summary><c>&lt;rev&gt;:&lt;path&gt;</c> の内容を読み取り専用のファイルに書き出します。<paramref name="blob"/> が null なら空ファイル。</summary>
     private async Task WriteBlobAsync(string repositoryPath, string? blob, string destination, CancellationToken ct)
     {

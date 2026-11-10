@@ -6,9 +6,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using GitVisualizer.Core.Infrastructure;
 using GitVisualizer.Core.Models;
 using GitVisualizer.Core.Services;
 using GitVisualizer.UI.Abstractions;
+using GitVisualizer.UI.ViewModels.Dialogs;
 
 namespace GitVisualizer.UI.ViewModels;
 
@@ -20,12 +22,20 @@ public sealed partial class WorkingChangesViewModel : ObservableObject
     private readonly ICommitService _commitService;
     private readonly IHistoryService _historyService;
     private readonly IDiffViewerService _diffViewerService;
+    private readonly IDocumentService _documentService;
     private readonly INotificationService _notificationService;
     private readonly IDialogService _dialogService;
     private readonly GitOperationContext _context;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RevertCommand))]
+    [NotifyCanExecuteChangedFor(nameof(OpenFileCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DeleteFileCommand))]
+    [NotifyCanExecuteChangedFor(nameof(IgnoreFileCommand))]
+    [NotifyCanExecuteChangedFor(nameof(IgnoreExtensionCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ShowHistoryCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ShowBlameCommand))]
+    [NotifyPropertyChangedFor(nameof(IgnoreExtensionHeader))]
     private FileChange? _selectedChange;
 
     [ObservableProperty]
@@ -63,14 +73,16 @@ public sealed partial class WorkingChangesViewModel : ObservableObject
     /// <param name="commitService">コミットサービス。</param>
     /// <param name="historyService">履歴サービス(Amend の対象にできるコミットの取得と、過去のコミットの修正に使う)。</param>
     /// <param name="diffViewerService">差分の表示先。</param>
+    /// <param name="documentService">ファイルを開くエディター。</param>
     /// <param name="notificationService">通知サービス。</param>
     /// <param name="dialogService">ダイアログサービス(変更の破棄・履歴の書き換えの確認に使う)。</param>
     /// <param name="context">操作対象リポジトリと操作の実行手順。</param>
-    public WorkingChangesViewModel(ICommitService commitService, IHistoryService historyService, IDiffViewerService diffViewerService, INotificationService notificationService, IDialogService dialogService, GitOperationContext context)
+    public WorkingChangesViewModel(ICommitService commitService, IHistoryService historyService, IDiffViewerService diffViewerService, IDocumentService documentService, INotificationService notificationService, IDialogService dialogService, GitOperationContext context)
     {
         _commitService = commitService;
         _historyService = historyService;
         _diffViewerService = diffViewerService;
+        _documentService = documentService;
         _notificationService = notificationService;
         _dialogService = dialogService;
         _context = context;
@@ -84,6 +96,11 @@ public sealed partial class WorkingChangesViewModel : ObservableObject
 
     /// <summary>表示中の差分を行単位でステージできるかどうか(未ステージの差分だけ。ステージ解除はファイル単位で行う)。</summary>
     public bool CanStageLines => CurrentPatch is { CanApplyLines: true, Change.IsStaged: false };
+
+    /// <summary>右クリックメニューの「この拡張子を無視」の見出し(拡張子のパターン付き)。</summary>
+    public string IgnoreExtensionHeader =>
+        SelectedChange != null && GitIgnoreFile.PatternForExtension(SelectedChange.Path) is string pattern
+            ? $"この拡張子を無視({pattern.Replace("_", "__")})" : "この拡張子を無視"; // "_" はアクセスキーにならないよう重ねる
 
     /// <summary>差分の代わりに表示するメッセージがあるかどうか。</summary>
     public bool HasDiffMessage => DiffMessage.Length != 0;
@@ -375,6 +392,117 @@ public sealed partial class WorkingChangesViewModel : ObservableObject
         await _context.RunAsync($"変更を元に戻す ({change.Path})", (path, token) => _commitService.RevertAsync(path, change, token), ct);
     }
 
+    // 削除されたファイルは作業ツリーにないため、開く・削除の対象にしない
+    private bool CanOpenFile() => SelectedChange is { Kind: not FileChangeKind.Deleted };
+
+    [RelayCommand(CanExecute = nameof(CanOpenFile))]
+    private async Task OpenFileAsync(CancellationToken ct)
+    {
+        FileChange? change = SelectedChange;
+        string? path = _context.RepositoryPath;
+        if (!CanOpenFile() || path == null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _documentService.OpenFileAsync(FullPathOf(path, change!.Path), ct);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            _context.ReportLoadError("ファイルを開く処理", ex);
+        }
+    }
+
+    private bool CanDeleteFile() => CanOpenFile();
+
+    [RelayCommand(CanExecute = nameof(CanDeleteFile))]
+    private async Task DeleteFileAsync(CancellationToken ct)
+    {
+        FileChange? change = SelectedChange;
+        if (!CanDeleteFile())
+        {
+            return;
+        }
+
+        if (!await _dialogService.ConfirmAsync($"{change!.Path} を削除しますか?\n\nファイルはごみ箱に移動します。", ct))
+        {
+            return;
+        }
+
+        await _context.RunAsync($"削除 ({change.Path})", (path, token) => _commitService.DeleteFileAsync(path, change, token), ct);
+    }
+
+    // .gitignore は追跡中のファイルには効かないため、未追跡のファイルだけを対象にする
+    private bool CanIgnoreFile() => SelectedChange is { Kind: FileChangeKind.Untracked };
+
+    [RelayCommand(CanExecute = nameof(CanIgnoreFile))]
+    private Task IgnoreFileAsync(CancellationToken ct)
+    {
+        FileChange? change = SelectedChange;
+        return CanIgnoreFile() ? AddToGitIgnoreAsync(GitIgnoreFile.PatternForPath(change!.Path), ct) : Task.CompletedTask;
+    }
+
+    private bool CanIgnoreExtension() => CanIgnoreFile() && GitIgnoreFile.PatternForExtension(SelectedChange!.Path) != null;
+
+    [RelayCommand(CanExecute = nameof(CanIgnoreExtension))]
+    private Task IgnoreExtensionAsync(CancellationToken ct)
+    {
+        FileChange? change = SelectedChange;
+        return CanIgnoreExtension() ? AddToGitIgnoreAsync(GitIgnoreFile.PatternForExtension(change!.Path)!, ct) : Task.CompletedTask;
+    }
+
+    private Task AddToGitIgnoreAsync(string pattern, CancellationToken ct) =>
+        _context.RunAsync($".gitignore に追加 ({pattern})", (path, token) => _commitService.AddToGitIgnoreAsync(path, pattern, token), ct);
+
+    // 新しく追加したファイルにはまだ履歴がない。名前変更はコミット済みの変更前のパスで調べる
+    private bool CanShowHistory() => SelectedChange is { Kind: not (FileChangeKind.Untracked or FileChangeKind.Added) };
+
+    [RelayCommand(CanExecute = nameof(CanShowHistory))]
+    private async Task ShowHistoryAsync(CancellationToken ct)
+    {
+        FileChange? change = SelectedChange;
+        string? path = _context.RepositoryPath;
+        if (!CanShowHistory() || path == null)
+        {
+            return;
+        }
+
+        var viewModel = new FileHistoryViewModel(_historyService, _diffViewerService, _context, path, CommittedPathOf(change!));
+        _ = viewModel.LoadAsync(CancellationToken.None);
+        await _dialogService.ShowWindowAsync(viewModel, ct);
+    }
+
+    private bool CanShowBlame() => CanShowHistory();
+
+    [RelayCommand(CanExecute = nameof(CanShowBlame))]
+    private async Task ShowBlameAsync(CancellationToken ct)
+    {
+        FileChange? change = SelectedChange;
+        string? path = _context.RepositoryPath;
+        if (!CanShowBlame() || path == null)
+        {
+            return;
+        }
+
+        try
+        {
+            string blameFile = await _historyService.WriteBlameAsync(path, CommittedPathOf(change!), ct);
+            await _documentService.OpenFileAsync(blameFile, ct);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            _context.ReportLoadError("変更履歴(注釈)の取得", ex);
+        }
+    }
+
     [RelayCommand]
     private Task StageAllAsync(CancellationToken ct)
     {
@@ -442,6 +570,12 @@ public sealed partial class WorkingChangesViewModel : ObservableObject
             SelectedAmendTarget = AmendTargets.FirstOrDefault();
         }
     }
+
+    private static string FullPathOf(string repositoryPath, string relativePath) =>
+        System.IO.Path.Combine(repositoryPath, relativePath.Replace('/', System.IO.Path.DirectorySeparatorChar));
+
+    /// <summary>コミット済みの履歴を調べるときのパス(名前変更は変更前のパス)。</summary>
+    private static string CommittedPathOf(FileChange change) => change.Kind == FileChangeKind.Renamed ? change.OldPath ?? change.Path : change.Path;
 
     /// <summary>名前変更をステージから外すときは、変更前のパスも対象にする。</summary>
     private static IReadOnlyList<string> PathsOf(FileChange change) =>

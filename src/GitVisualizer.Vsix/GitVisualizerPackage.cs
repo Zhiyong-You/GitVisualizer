@@ -98,6 +98,7 @@ public sealed class GitVisualizerPackage : AsyncPackage
         var repositoryLocator = new VsSolutionRepositoryLocator(this, gitRunner);
         var dialogService = new VsDialogService(this);
         var diffViewerService = new VsDiffViewerService(this);
+        var documentService = new VsDocumentService(this);
         var notificationService = new VsNotificationService(this);
 
         // 前回までの差分表示で作った一時ファイルを消す(他の VS で開いているかもしれないので、新しいものは残す)
@@ -113,6 +114,7 @@ public sealed class GitVisualizerPackage : AsyncPackage
             repositoryLocator,
             dialogService,
             diffViewerService,
+            documentService,
             notificationService,
             logger);
 

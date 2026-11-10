@@ -410,13 +410,38 @@
                               ItemContainerStyle="{StaticResource ThemedListItemStyle}"
                               MouseDoubleClick="OnWorkingFileMouseDoubleClick"
                               PreviewMouseRightButtonDown="OnWorkingFileMouseRightButtonDown">
+                        <ListView.InputBindings>
+                            <KeyBinding Key="Delete" Command="{Binding DeleteFileCommand}" />
+                        </ListView.InputBindings>
                         <ListView.ContextMenu>
                             <ContextMenu>
-                                <MenuItem Header="差分を表示"
+                                <MenuItem Header="開く(_O)" Command="{Binding OpenFileCommand}" />
+                                <!-- ステージ済みのファイルでは「ステージ解除」にする -->
+                                <MenuItem Command="{Binding ToggleStageCommand}"
+                                          CommandParameter="{Binding SelectedChange}">
+                                    <MenuItem.Style>
+                                        <Style TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}">
+                                            <Setter Property="Header" Value="ステージ(_S)" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding SelectedChange.IsStaged}" Value="True">
+                                                    <Setter Property="Header" Value="ステージ解除(_S)" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </MenuItem.Style>
+                                </MenuItem>
+                                <Separator />
+                                <MenuItem Header="履歴を表示(_H)" Command="{Binding ShowHistoryCommand}" />
+                                <MenuItem Header="差分を表示(_C)"
                                           Command="{Binding OpenDiffCommand}"
                                           CommandParameter="{Binding PlacementTarget.SelectedItem, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                <MenuItem Header="変更履歴 (注釈)(_A)" Command="{Binding ShowBlameCommand}" />
                                 <Separator />
-                                <MenuItem Header="変更を元に戻す(Revert)" Command="{Binding RevertCommand}" />
+                                <MenuItem Header="変更を元に戻す(Revert)(_R)" Command="{Binding RevertCommand}" />
+                                <MenuItem Header="削除(_D)" InputGestureText="Del" Command="{Binding DeleteFileCommand}" />
+                                <Separator />
+                                <MenuItem Header="このローカル項目を無視(_I)" Command="{Binding IgnoreFileCommand}" />
+                                <MenuItem Header="{Binding IgnoreExtensionHeader}" Command="{Binding IgnoreExtensionCommand}" />
                             </ContextMenu>
                         </ListView.ContextMenu>
 

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Text.RegularExpressions;
 using GitVisualizer.Core.Models;
 
@@ -121,6 +122,49 @@ public sealed class GitOutputParser
         }
 
         return commits;
+    }
+
+    /// <summary>ファイルの履歴(<c>git log --follow --name-status -z</c>)の出力を解析します。</summary>
+    /// <param name="output">
+    /// 各コミットの先頭に \x01 を付けた <see cref="ParseLog"/> 形式のコミット情報と、その後ろの --name-status の出力。
+    /// </param>
+    /// <param name="path">対象ファイルの現在のパス。</param>
+    /// <returns>新しい順の履歴。</returns>
+    public IReadOnlyList<FileHistoryEntry> ParseFileHistory(string output, string path)
+    {
+        const int CommitFieldCount = 8;
+        var entries = new List<FileHistoryEntry>();
+        if (string.IsNullOrEmpty(output))
+        {
+            return entries;
+        }
+
+        // 新しい順にたどり、名前変更があればそれより古いコミットでは変更前のパスを使う
+        string trackedPath = path;
+        foreach (string record in output.Split('\x01'))
+        {
+            string[] fields = record.Split(FieldSeparator);
+            if (fields.Length < CommitFieldCount)
+            {
+                continue;
+            }
+
+            IReadOnlyList<CommitInfo> commits = ParseLog(string.Join("\0", fields, 0, CommitFieldCount) + "\0");
+            if (commits.Count == 0)
+            {
+                continue;
+            }
+
+            // マージコミットなどで変更が出力されない場合は、その時点のパスの変更として扱う
+            string nameStatus = string.Join("\0", fields, CommitFieldCount, fields.Length - CommitFieldCount);
+            FileChange file = ParseNameStatus(nameStatus).FirstOrDefault()
+                ?? new FileChange(trackedPath, FileChangeKind.Modified, isStaged: false);
+
+            entries.Add(new FileHistoryEntry(commits[0], file));
+            trackedPath = file.OldPath ?? file.Path;
+        }
+
+        return entries;
     }
 
     /// <summary>作業ツリーの状態出力を解析します。</summary>

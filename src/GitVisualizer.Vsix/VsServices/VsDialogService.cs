@@ -76,6 +76,44 @@ internal sealed class VsDialogService : IDialogService
     }
 
     /// <inheritdoc/>
+    public async Task ShowWindowAsync(object viewModel, CancellationToken ct = default)
+    {
+        await _package.JoinableTaskFactory.SwitchToMainThreadAsync(ct);
+
+        if (viewModel is not DialogViewModelBase dialogViewModel)
+        {
+            throw new ArgumentException($"ダイアログの ViewModel ではありません: {viewModel.GetType().FullName}", nameof(viewModel));
+        }
+
+        UserControl view = CreateView(dialogViewModel);
+        view.DataContext = dialogViewModel;
+
+        // 開いたまま差分ウィンドウなどを操作できるよう、モードレスで表示する(サイズは変更可)
+        var window = new DialogWindow
+        {
+            Title = $"{dialogViewModel.Title} - {Title}",
+            Content = view,
+            Width = 820,
+            Height = 480,
+            MinWidth = 480,
+            MinHeight = 240,
+            ResizeMode = ResizeMode.CanResizeWithGrip,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            HasMinimizeButton = false,
+            HasMaximizeButton = true,
+            ShowInTaskbar = false,
+            Owner = Application.Current?.MainWindow,
+        };
+        window.SetResourceReference(Control.BackgroundProperty, EnvironmentColors.ToolWindowBackgroundBrushKey);
+
+        void OnCloseRequested(object? sender, bool accepted) => window.Close();
+
+        dialogViewModel.CloseRequested += OnCloseRequested;
+        window.Closed += (_, _) => dialogViewModel.CloseRequested -= OnCloseRequested;
+        window.Show();
+    }
+
+    /// <inheritdoc/>
     public async Task<bool> ConfirmAsync(string message, CancellationToken ct = default)
     {
         await _package.JoinableTaskFactory.SwitchToMainThreadAsync(ct);
@@ -99,6 +137,7 @@ internal sealed class VsDialogService : IDialogService
         RebaseDialogViewModel => new RebaseDialog(),
         CherryPickDialogViewModel => new CherryPickDialog(),
         RewordDialogViewModel => new RewordDialog(),
+        FileHistoryViewModel => new FileHistoryDialog(),
         _ => throw new ArgumentException($"対応する View がありません: {viewModel.GetType().FullName}", nameof(viewModel)),
     };
 }
