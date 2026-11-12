@@ -10,7 +10,7 @@ namespace GitVisualizer.Vsix;
 public sealed class WorkingChangesToolWindow : ToolWindowPane
 {
     /// <summary>ウィンドウのタイトル。</summary>
-    public const string Title = "GitVisualizer 変更ファイル";
+    public const string Title = "GitVisualizer 変更";
 
     /// <summary>変更ファイル画面を初期化します。</summary>
     /// <param name="viewModel">ブランチ管理画面と共有する ViewModel。</param>

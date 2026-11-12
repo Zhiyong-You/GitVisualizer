@@ -10,7 +10,7 @@ namespace GitVisualizer.Vsix;
 public sealed class GitVisualizerToolWindow : ToolWindowPane
 {
     /// <summary>ウィンドウのタイトル。</summary>
-    public const string Title = "GitVisualizer ブランチ管理";
+    public const string Title = "GitVisualizer リポジトリ";
 
     /// <summary><see cref="GitVisualizerToolWindow"/> を初期化します(UI スレッドで呼ばれる)。</summary>
     /// <param name="viewModel"><see cref="GitVisualizerPackage"/>.InitializeToolWindowAsync で組み立てた ViewModel。</param>

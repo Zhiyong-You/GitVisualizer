@@ -23,9 +23,9 @@ internal static class PackageIds
     /// <summary>コマンドセットの GUID。</summary>
     public static readonly Guid CommandSet = new(CommandSetGuidString);
 
-    /// <summary>「表示 &gt; GitVisualizer ブランチ管理」コマンド(vsct: cmdidShowToolWindow)。</summary>
+    /// <summary>「表示 &gt; GitVisualizer &gt; リポジトリ」コマンド(vsct: cmdidShowToolWindow)。</summary>
     public const int ShowToolWindowCommandId = 0x0100;
 
-    /// <summary>「表示 &gt; GitVisualizer 変更ファイル」コマンド(vsct: cmdidShowWorkingChanges)。</summary>
+    /// <summary>「表示 &gt; GitVisualizer &gt; 変更」コマンド(vsct: cmdidShowWorkingChanges)。</summary>
     public const int ShowWorkingChangesCommandId = 0x0101;
 }

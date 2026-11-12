@@ -5,22 +5,39 @@
   <Extern href="vsshlids.h" />
 
   <Commands package="guidGitVisualizerPackage">
+    <!-- 「表示 > GitVisualizer」サブメニュー -->
+    <Menus>
+      <Menu guid="guidGitVisualizerCmdSet" id="GitVisualizerSubMenu" priority="0x0100" type="Menu">
+        <Parent guid="guidGitVisualizerCmdSet" id="GitVisualizerViewGroup" />
+        <Strings>
+          <ButtonText>GitVisualizer</ButtonText>
+          <CommandName>GitVisualizer</CommandName>
+        </Strings>
+      </Menu>
+    </Menus>
     <Groups>
+      <!-- 「表示」メニュー内でサブメニューを置くグループ -->
       <Group guid="guidGitVisualizerCmdSet" id="GitVisualizerViewGroup" priority="0x0600">
         <Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_VIEW" />
       </Group>
+      <!-- サブメニュー内の項目グループ -->
+      <Group guid="guidGitVisualizerCmdSet" id="GitVisualizerSubMenuGroup" priority="0x0100">
+        <Parent guid="guidGitVisualizerCmdSet" id="GitVisualizerSubMenu" />
+      </Group>
     </Groups>
     <Buttons>
-      <Button guid="guidGitVisualizerCmdSet" id="cmdidShowToolWindow" priority="0x0100" type="Button">
-        <Parent guid="guidGitVisualizerCmdSet" id="GitVisualizerViewGroup" />
+      <Button guid="guidGitVisualizerCmdSet" id="cmdidShowWorkingChanges" priority="0x0100" type="Button">
+        <Parent guid="guidGitVisualizerCmdSet" id="GitVisualizerSubMenuGroup" />
         <Strings>
-          <ButtonText>GitVisualizer ブランチ管理</ButtonText>
+          <ButtonText>変更</ButtonText>
+          <CanonicalName>GitVisualizer.Changes</CanonicalName>
         </Strings>
       </Button>
-      <Button guid="guidGitVisualizerCmdSet" id="cmdidShowWorkingChanges" priority="0x0101" type="Button">
-        <Parent guid="guidGitVisualizerCmdSet" id="GitVisualizerViewGroup" />
+      <Button guid="guidGitVisualizerCmdSet" id="cmdidShowToolWindow" priority="0x0101" type="Button">
+        <Parent guid="guidGitVisualizerCmdSet" id="GitVisualizerSubMenuGroup" />
         <Strings>
-          <ButtonText>GitVisualizer 変更ファイル</ButtonText>
+          <ButtonText>リポジトリ</ButtonText>
+          <CanonicalName>GitVisualizer.Repository</CanonicalName>
         </Strings>
       </Button>
     </Buttons>
@@ -34,6 +51,8 @@
       <IDSymbol name="cmdidShowToolWindow" value="0x0100" />
       <IDSymbol name="cmdidShowWorkingChanges" value="0x0101" />
       <IDSymbol name="GitVisualizerViewGroup" value="0x1020" />
+      <IDSymbol name="GitVisualizerSubMenuGroup" value="0x1030" />
+      <IDSymbol name="GitVisualizerSubMenu" value="0x1100" />
     </GuidSymbol>
   </Symbols>
 </CommandTable>
