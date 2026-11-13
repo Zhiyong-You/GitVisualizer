@@ -389,6 +389,10 @@
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>
                         </ComboBox>
+                        <Button DockPanel.Dock="Right" Content="Commit and Push..." Command="{Binding CommitAndPushCommand}"
+                                ToolTip="コミットした後、Push ダイアログを開きます"
+                                Padding="8,2" Margin="4,0,0,0"
+                                Style="{DynamicResource {x:Static vsshell:VsResourceKeys.ButtonStyleKey}}" />
                         <Button DockPanel.Dock="Right" Content="Commit" Command="{Binding CommitCommand}"
                                 Padding="16,2" MinWidth="80"
                                 Style="{DynamicResource {x:Static vsshell:VsResourceKeys.ButtonStyleKey}}" />

@@ -40,6 +40,7 @@ public sealed partial class WorkingChangesViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(CommitCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CommitAndPushCommand))]
     private string _commitMessage = string.Empty;
 
     [ObservableProperty]
@@ -527,15 +528,30 @@ public sealed partial class WorkingChangesViewModel : ObservableObject
         return _context.RunAsync("すべてステージ解除", (path, token) => _commitService.UnstageAsync(path, paths, token), ct);
     }
 
+    /// <summary>「Commit and Push」でコミットに成功した後に実行する Push(ツールバーの Push と同じくダイアログを出す)。</summary>
+    public Func<CancellationToken, Task>? PushAfterCommit { get; set; }
+
     private bool CanCommit() => !string.IsNullOrWhiteSpace(CommitMessage);
 
     [RelayCommand(CanExecute = nameof(CanCommit))]
-    private async Task CommitAsync(CancellationToken ct)
+    private Task CommitAsync(CancellationToken ct) => CommitCoreAsync(ct);
+
+    [RelayCommand(CanExecute = nameof(CanCommit))]
+    private async Task CommitAndPushAsync(CancellationToken ct)
+    {
+        if (await CommitCoreAsync(ct) && PushAfterCommit != null)
+        {
+            await PushAfterCommit(ct);
+        }
+    }
+
+    /// <returns>コミットに成功した場合は <see langword="true"/>。</returns>
+    private async Task<bool> CommitCoreAsync(CancellationToken ct)
     {
         if (!IsAmend && !Changes.Any(c => c.IsStaged))
         {
             await _notificationService.ShowErrorAsync("ステージされた変更がありません。コミットするファイルのチェックボックスをオンにしてください。", ct);
-            return;
+            return false;
         }
 
         string message = CommitMessage;
@@ -550,7 +566,7 @@ public sealed partial class WorkingChangesViewModel : ObservableObject
                     + "このコミット以降の履歴が書き換わるため、プッシュ済みの場合は強制プッシュが必要になります。\n\n続行しますか?",
                     ct))
             {
-                return;
+                return false;
             }
 
             success = await _context.RunAsync(
@@ -569,6 +585,8 @@ public sealed partial class WorkingChangesViewModel : ObservableObject
             IsAmend = false;
             SelectedAmendTarget = AmendTargets.FirstOrDefault();
         }
+
+        return success;
     }
 
     private static string FullPathOf(string repositoryPath, string relativePath) =>

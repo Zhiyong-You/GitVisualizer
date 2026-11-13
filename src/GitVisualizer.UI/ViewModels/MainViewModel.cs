@@ -69,6 +69,7 @@ public sealed partial class MainViewModel : ObservableObject
 
         _context.State = OperationState;
         _context.RefreshAll = RefreshAsync;
+        WorkingChanges.PushAfterCommit = _ => Toolbar.PushCommand.ExecuteAsync(null);
 
         CommitHistory.PropertyChanged += OnCommitHistoryPropertyChanged;
         Toolbar.CheckoutRequested += OnToolbarCheckoutRequested;

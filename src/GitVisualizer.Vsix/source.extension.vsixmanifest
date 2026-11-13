@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
   <Metadata>
-    <Identity Id="GitVisualizer.19af4ffe-2410-441f-ac81-2cb9ae151e09" Version="0.1.3" Language="en-US" Publisher="GitVisualizer Team" />
+    <Identity Id="GitVisualizer.19af4ffe-2410-441f-ac81-2cb9ae151e09" Version="0.1.4" Language="en-US" Publisher="GitVisualizer Team" />
     <DisplayName>Git Visualizer</DisplayName>
     <Description xml:space="preserve">Visual Studio 用の Git クライアント(ブランチ・コミット履歴の可視化と操作)。</Description>
   </Metadata>
